@@ -1,36 +1,66 @@
+# LLMTutor — Main Environment Requirements
+# Python 3.11.x required
+#
+# INSTALL ORDER MATTERS:
+# 1. Install llama-cpp-python with CUDA 12.4 FIRST (see below)
+# 2. Then install this file
+#
+# Step 1 — llama-cpp-python (CUDA 12.4):
+#   pip install llama-cpp-python==0.3.4 \
+#       --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
+#
+# Step 2 — everything else:
+#   pip install -r requirements.txt
+
+# ── PyTorch (CUDA 12.4) ───────────────────────────────────────────────────────
+--extra-index-url https://download.pytorch.org/whl/cu124
+torch==2.6.0+cu124
+torchaudio==2.6.0+cu124
+torchvision==0.21.0+cu124
+
+# ── Core numeric / audio ──────────────────────────────────────────────────────
 numpy==1.25.2
 scipy
 resampy
+librosa==0.11.0
+sounddevice==0.5.5
+soundfile==0.13.1
+soxr==1.0.0
+webrtcvad==2.0.10
 
-torch==2.6.0
-torchaudio==2.6.0
-
-transformers
-sentence-transformers
-accelerate
-einops
-safetensors
-
+# ── STT ───────────────────────────────────────────────────────────────────────
 faster-whisper==1.2.1
 ctranslate2==4.6.3
 
+# ── LLM / Transformers ────────────────────────────────────────────────────────
+transformers
+accelerate
+einops
+safetensors
+sentence-transformers
 
-
-sounddevice==0.5.5
-soundfile==0.13.1
-webrtcvad==2.0.10
-librosa==0.11.0
-soxr==1.0.0
-
+# ── TTS ───────────────────────────────────────────────────────────────────────
 kokoro==0.9.4
+# chatterbox (git install — run separately):
+#   pip install git+https://github.com/resemble-ai/chatterbox.git@eaf93540a1dde06da2f7e93117bfa4a97908393a
 
+# ── RAG / vector search ───────────────────────────────────────────────────────
+faiss-cpu
+PyMuPDF
+
+# ── API / web ─────────────────────────────────────────────────────────────────
+fastapi
+uvicorn[standard]
+pydantic
 httpx==0.28.1
 requests
+websocket-client
+websockets
+python-multipart
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
 PyYAML
 tqdm
-
-faiss-cpu
-
-pydantic
-fastapi
-uvicorn
+loguru
+omegaconf
+mistralai
