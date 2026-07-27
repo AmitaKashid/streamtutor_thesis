@@ -1,0 +1,45 @@
+{
+  "dataset_version": "0.1.0",
+  "items": [
+    {
+      "id": "decision-tree-definition-001",
+      "question": "What is a decision tree?",
+      "aliases": [
+        "Can you explain what a decision tree is?",
+        "Explain a decision tree."
+      ],
+      "reference_answers": [
+        "A decision tree is a supervised learning model that predicts an outcome by testing feature-based conditions from a root node through branches until it reaches a leaf containing the final class or numeric prediction.",
+        "A decision tree works like a flowchart: each internal node asks a question about a feature, each branch represents an answer, and the reached leaf gives the prediction."
+      ],
+      "expected_concepts": [
+        "supervised learning",
+        "feature-based split",
+        "branches",
+        "leaf prediction"
+      ],
+      "teaching_style": "socratic",
+      "candidate_answer": "A decision tree is a model that asks a sequence of questions about the data and follows branches to make a prediction."
+    },
+    {
+      "id": "decision-tree-entropy-001",
+      "question": "How is entropy used in decision trees?",
+      "aliases": [
+        "What does entropy do in a decision tree?",
+        "Explain entropy in decision trees."
+      ],
+      "reference_answers": [
+        "Entropy measures how mixed the class labels are in a node. For every candidate split, the tree compares the weighted entropy of the child nodes with the parent's entropy. The reduction is information gain, and a larger reduction indicates a purer split.",
+        "In a classification tree, entropy is an impurity measure. The algorithm prefers a split with high information gain because it reduces uncertainty and produces child nodes whose class labels are more homogeneous."
+      ],
+      "expected_concepts": [
+        "impurity",
+        "weighted child entropy",
+        "information gain",
+        "split selection"
+      ],
+      "teaching_style": "socratic",
+      "candidate_answer": "Entropy measures impurity. A decision tree prefers splits that reduce entropy the most."
+    }
+  ]
+}

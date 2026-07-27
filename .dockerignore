@@ -1,0 +1,9 @@
+.venv
+__pycache__
+*.pyc
+.git
+models
+tts_output
+*.wav
+*.mp3
+*.log

@@ -1,0 +1,23 @@
+# ---------- Core ----------
+numpy>=1.24,<1.26
+scipy
+resampy
+
+# ---------- STT ----------
+faster-whisper
+webrtcvad
+
+# ---------- LLM ----------
+llama-cpp-python
+torch --index-url https://download.pytorch.org/whl/cu121
+
+# ---------- TTS ----------
+#chatterbox-tts==0.1.4
+soundfile
+sounddevice
+
+# ---------- RAG ----------
+pymupdf
+pyyaml
+sentence-transformers
+numpy

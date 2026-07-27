@@ -1,0 +1,30 @@
+{"id": "q_001", "question": "What is a decision tree?", "type": "definition", "difficulty": "easy", "topic": "decision_trees", "ambiguous": false}
+{"id": "q_002", "question": "What is tree induction?", "type": "definition", "difficulty": "easy", "topic": "tree_induction", "ambiguous": false}
+{"id": "q_003", "question": "What is a leaf node?", "type": "definition", "difficulty": "easy", "topic": "tree_structure", "ambiguous": false}
+{"id": "q_004", "question": "What is an internal node?", "type": "definition", "difficulty": "easy", "topic": "tree_structure", "ambiguous": false}
+{"id": "q_005", "question": "What is entropy in decision trees?", "type": "definition", "difficulty": "medium", "topic": "entropy", "ambiguous": false}
+{"id": "q_006", "question": "What is Gini index?", "type": "definition", "difficulty": "medium", "topic": "gini", "ambiguous": false}
+{"id": "q_007", "question": "What is misclassification rate?", "type": "definition", "difficulty": "medium", "topic": "impurity", "ambiguous": false}
+{"id": "q_008", "question": "What is information gain?", "type": "definition", "difficulty": "medium", "topic": "information_gain", "ambiguous": false}
+{"id": "q_009", "question": "Why do we split nodes in a decision tree?", "type": "why", "difficulty": "easy", "topic": "splitting", "ambiguous": false}
+{"id": "q_010", "question": "Why do we minimize impurity?", "type": "why", "difficulty": "medium", "topic": "impurity", "ambiguous": false}
+{"id": "q_011", "question": "Why is entropy used for splitting?", "type": "why", "difficulty": "medium", "topic": "entropy", "ambiguous": false}
+{"id": "q_012", "question": "Why does information gain work?", "type": "why", "difficulty": "medium", "topic": "information_gain", "ambiguous": false}
+{"id": "q_013", "question": "Why are there different impurity measures?", "type": "why", "difficulty": "medium", "topic": "impurity", "ambiguous": false}
+{"id": "q_014", "question": "Why do we compare different splits?", "type": "why", "difficulty": "medium", "topic": "splitting", "ambiguous": false}
+{"id": "q_015", "question": "How is a decision tree built?", "type": "process", "difficulty": "easy", "topic": "tree_induction", "ambiguous": false}
+{"id": "q_016", "question": "How does Hunt's algorithm work?", "type": "process", "difficulty": "medium", "topic": "hunt_algorithm", "ambiguous": false}
+{"id": "q_017", "question": "How do we choose the best split?", "type": "process", "difficulty": "medium", "topic": "splitting", "ambiguous": false}
+{"id": "q_018", "question": "How is information gain calculated?", "type": "process", "difficulty": "medium", "topic": "information_gain", "ambiguous": false}
+{"id": "q_019", "question": "How does ID3 algorithm work?", "type": "process", "difficulty": "medium", "topic": "id3", "ambiguous": false}
+{"id": "q_020", "question": "How do we split continuous attributes?", "type": "process", "difficulty": "hard", "topic": "continuous_split", "ambiguous": false}
+{"id": "q_021", "question": "How does a decision tree classify data?", "type": "application", "difficulty": "easy", "topic": "classification", "ambiguous": false}
+{"id": "q_022", "question": "Can you give an example of a decision tree?", "type": "application", "difficulty": "easy", "topic": "decision_trees", "ambiguous": false}
+{"id": "q_023", "question": "How is a flamingo classified in the example?", "type": "application", "difficulty": "medium", "topic": "example", "ambiguous": false}
+{"id": "q_024", "question": "How does the tree decide between classes?", "type": "application", "difficulty": "medium", "topic": "classification", "ambiguous": false}
+{"id": "q_025", "question": "What happens when a new data point comes?", "type": "application", "difficulty": "medium", "topic": "prediction", "ambiguous": false}
+{"id": "q_026", "question": "Why this formula?", "type": "ambiguous", "difficulty": "hard", "topic": "entropy", "ambiguous": true}
+{"id": "q_027", "question": "What is happening here?", "type": "ambiguous", "difficulty": "medium", "topic": "splitting", "ambiguous": true}
+{"id": "q_028", "question": "Explain this step", "type": "ambiguous", "difficulty": "medium", "topic": "algorithm", "ambiguous": true}
+{"id": "q_029", "question": "What does this node do?", "type": "ambiguous", "difficulty": "medium", "topic": "tree_structure", "ambiguous": true}
+{"id": "q_030", "question": "Why do we subtract this?", "type": "ambiguous", "difficulty": "hard", "topic": "information_gain", "ambiguous": true}

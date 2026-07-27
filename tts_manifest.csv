@@ -1,0 +1,73 @@
+﻿text_id,category,text,word_count,char_count
+short_01,short,A decision tree divides data into smaller groups.,8,49
+short_02,short,Clustering finds natural groups without labeled examples.,7,57
+short_03,short,Precision measures how many predicted positives are correct.,8,60
+short_04,short,Recall measures how many relevant cases were found.,8,51
+short_05,short,The model learns patterns from the training data.,8,49
+short_06,short,Cross-validation estimates performance on unseen data.,6,54
+short_07,short,A feature describes one property of an example.,8,47
+short_08,short,Overfitting happens when a model memorizes noise.,7,49
+short_09,short,Entropy measures uncertainty in a set of labels.,8,48
+short_10,short,The nearest neighbors vote for the predicted class.,8,51
+short_11,short,Missing values should be handled before model training.,8,55
+short_12,short,Let us examine the result one step at a time.,10,45
+medium_01,medium,"A decision tree selects a feature and a threshold that best separate the training examples, then repeats this process within each resulting branch.",23,147
+medium_02,medium,Naive Bayes estimates the probability of each class from the observed features and predicts the class with the highest posterior probability.,21,141
+medium_03,medium,"K-means begins with candidate centroids, assigns each observation to its nearest centroid, and repeatedly updates the centroids until the assignments stabilize.",21,160
+medium_04,medium,The silhouette score compares how close an observation is to its own cluster with how close it is to the nearest alternative cluster.,23,133
+medium_05,medium,"High training accuracy does not guarantee good generalization, so we evaluate the model on data that was not used during training.",21,130
+medium_06,medium,"Precision is especially important when false alarms are costly, while recall is more important when missing a positive case has serious consequences.",22,149
+medium_07,medium,"A confusion matrix separates correct and incorrect predictions into true positives, true negatives, false positives, and false negatives.",18,137
+medium_08,medium,Feature scaling prevents variables with large numerical ranges from dominating distance calculations in methods such as K-means and nearest neighbors.,20,150
+medium_09,medium,Principal component analysis creates new uncorrelated directions that preserve as much variation as possible using fewer dimensions.,17,132
+medium_10,medium,"Association-rule mining searches for items that frequently occur together and then evaluates candidate rules using support, confidence, and lift.",19,145
+medium_11,medium,"A validation set helps us choose model settings, whereas the test set should remain untouched until the final evaluation.",19,121
+medium_12,medium,"Regularization discourages unnecessarily complex models by adding a penalty to the learning objective, which can reduce overfitting.",17,132
+medium_13,medium,Density-based clustering can identify irregularly shaped groups and mark isolated observations as noise without requiring every point to join a cluster.,21,152
+medium_14,medium,Data leakage occurs when information unavailable at prediction time accidentally enters training and makes evaluation results look unrealistically strong.,19,154
+medium_15,medium,"If classes are highly imbalanced, accuracy can be misleading because a model may ignore the minority class and still appear successful.",21,135
+medium_16,medium,"Before selecting a model, define the practical error costs, choose matching evaluation metrics, and compare all candidates on the same data split.",22,146
+long_01,long,"Suppose a bank wants to predict whether a customer will repay a loan. The model can use income, existing debt, repayment history, and employment stability, but it must not learn from information recorded after the lending decision. We therefore define a clear prediction timestamp, remove future information, split the data chronologically, and evaluate both discrimination and calibration before deployment.",59,408
+long_02,long,"A decision tree starts with all training examples at the root node. It evaluates possible feature splits and chooses the one that produces the greatest reduction in impurity. The same procedure continues recursively in each child node. If the tree grows without restriction, it may fit noise, so maximum depth, minimum leaf size, or pruning is used to control complexity.",60,371
+long_03,long,"In K-means clustering, the requested number of clusters must be chosen in advance. The algorithm initializes centroids, assigns each observation to its nearest centroid, recomputes each centroid from its assigned observations, and repeats. Because different initializations can produce different solutions, we run the method several times and retain the solution with the lowest within-cluster variation.",55,404
+long_04,long,"The silhouette value for one observation combines cohesion and separation. Cohesion measures the average distance to other observations in the same cluster. Separation measures the lowest average distance to observations in another cluster. Values near one indicate a suitable assignment, values near zero indicate an observation near a boundary, and negative values suggest that another cluster may fit better.",59,411
+long_05,long,"A classifier can achieve high accuracy and still be useless when the positive class is rare. Imagine that only one percent of transactions are fraudulent. A model predicting every transaction as legitimate reaches ninety-nine percent accuracy but detects no fraud. We therefore inspect recall, precision, the precision-recall curve, and the operational cost of missed cases and false alerts.",58,391
+long_06,long,"Cross-validation provides several estimates of model performance rather than relying on one fortunate split. The training data is divided into folds, the model is trained on all but one fold, and evaluation is performed on the held-out fold. This rotates until every fold has been held out. Preprocessing must be fitted inside each training fold to prevent data leakage.",59,370
+long_07,long,Association rules describe relationships such as customers who buy one item also tending to buy another. Support measures how often the complete item set appears. Confidence estimates how often the consequent appears when the antecedent appears. Lift compares that confidence with the consequent's baseline frequency. A high-confidence rule can still be uninformative when the consequent is already very common.,59,411
+long_08,long,"Principal component analysis can reduce dimensionality when variables are correlated. First, the features are centered and often standardized. The method then finds orthogonal directions ordered by the amount of variance they explain. We choose enough components to preserve an acceptable share of variation, but we also inspect interpretability because each component is a weighted combination of the original variables.",59,421
+long_09,long,"A production model should be monitored after deployment because the world can change. Input distributions may drift, labels may arrive late, and the relationship between features and outcomes may weaken. Monitoring should cover data quality, prediction distributions, latency, failures, and performance once labels become available. Alerts should lead to investigation rather than automatic retraining without review.",56,417
+long_10,long,"Missing data requires more than replacing every blank value with a mean. We first ask why values are missing and whether missingness itself carries information. Numerical and categorical variables may need different treatments. The imputation method must be learned only from training data, applied consistently to validation and test data, and packaged with the model for identical processing during inference.",60,411
+long_11,long,"When comparing two models, use the same evaluation dataset and report uncertainty rather than focusing on one score. A small average improvement may disappear across different samples, while a modest accuracy loss may be acceptable if latency, interpretability, or fairness improves substantially. The final choice should reflect the real decision cost and the constraints of the environment where predictions are used.",61,419
+long_12,long,"A useful tutoring explanation should do more than state a definition. It should identify the learner's misconception, connect the new idea to something familiar, work through one concrete example, and ask a question that checks understanding. The answer must remain grounded in the course material, but its depth and vocabulary should adapt to the student's current level and previous responses.",60,395
+punctuation_01,punctuation,"Why did the classifier fail: poor data, unsuitable features, or the wrong threshold?",13,84
+punctuation_02,punctuation,"First, inspect the data; second, train the model; finally, evaluate the result.",12,79
+punctuation_03,punctuation,"The result is surprising—accuracy increased, but recall decreased.",8,66
+punctuation_04,punctuation,"Consider three cases: correct, uncertain, and clearly incorrect.",8,64
+punctuation_05,punctuation,Did we prevent leakage? Yes—but only after rebuilding the pipeline.,10,67
+punctuation_06,punctuation,"The student asked, ""Why does entropy decrease after a useful split?""",11,68
+punctuation_07,punctuation,"Stop, compare the assumptions, and then choose the simpler explanation.",10,71
+punctuation_08,punctuation,"A good model should be accurate, stable, interpretable, and fast; which matters most here?",14,90
+numbers_01,numbers_formulas,"The model achieved 91.4 percent accuracy on 2,500 test examples.",10,64
+numbers_02,numbers_formulas,A probability of 0.75 means three successes are expected in every four comparable cases.,14,88
+numbers_03,numbers_formulas,The learning rate decreased from 0.01 to 0.001 after epoch 20.,11,62
+numbers_04,numbers_formulas,"If precision equals 8 divided by 10, then precision equals 0.8.",11,63
+numbers_05,numbers_formulas,The F1 score is twice precision times recall divided by precision plus recall.,13,78
+numbers_06,numbers_formulas,The Euclidean distance is the square root of the sum of squared coordinate differences.,14,87
+numbers_07,numbers_formulas,"The dataset contains 12,480 rows, 37 features, and 4 target classes.",11,68
+numbers_08,numbers_formulas,"Values range from minus 1 to plus 1, with 0 representing the cluster boundary.",14,78
+acronym_01,acronyms_terms,DBSCAN groups dense regions and labels isolated observations as noise.,10,70
+acronym_02,acronyms_terms,PCA reduces correlated features to a smaller set of principal components.,11,73
+acronym_03,acronyms_terms,RAG retrieves relevant evidence before the language model generates an answer.,11,78
+acronym_04,acronyms_terms,"STT converts the student's speech to text, while TTS converts the tutor's answer to audio.",15,90
+acronym_05,acronyms_terms,A ROC curve plots the true-positive rate against the false-positive rate.,11,73
+acronym_06,acronyms_terms,The AUC summarizes ranking quality across all classification thresholds.,9,72
+acronym_07,acronyms_terms,Naive Bayes assumes conditional independence between features given the class.,10,78
+acronym_08,acronyms_terms,The BGE embedding model maps semantically related passages to nearby vectors.,11,77
+list_01,lists_comparisons,"Compare the models using four criteria: accuracy, latency, memory consumption, and interpretability.",12,100
+list_02,lists_comparisons,"The pipeline has three stages: preprocess the data, train the estimator, and evaluate predictions.",14,98
+list_03,lists_comparisons,"Precision penalizes false positives, recall penalizes false negatives, and F1 balances both measures.",13,101
+list_04,lists_comparisons,Supervised learning uses labels; unsupervised learning searches for structure without labels.,11,93
+normalization_01,difficult_normalization,The lecture begins at 9:05 a.m. on 24 July 2026.,10,48
+normalization_02,difficult_normalization,Version 3.2.1 reduced latency from 1.8 seconds to 640 milliseconds.,10,67
+normalization_03,difficult_normalization,Send the report to tutor@example.org and open https://example.org/results.,8,74
+normalization_04,difficult_normalization,The file named model_final_v2.csv occupies 3.5 megabytes.,7,57

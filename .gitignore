@@ -1,0 +1,77 @@
+# ── Git backup folders (renamed sub-repo .git dirs) ──────────────────────────
+_git_bak/
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+.venv/
+.venv-qwen/
+.venv-qwen-stream/
+qwen3tts_env/
+qwen_stream_runtime/.venv/
+mega_asr_runtime/.venv/
+parakeet_runtime/.venv/
+
+# ── Python caches ─────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+
+# ── GGUF / large model files ──────────────────────────────────────────────────
+models/
+*.gguf
+*.bin
+*.safetensors
+*.pt
+*.ckpt
+
+# ── Audio / media files ───────────────────────────────────────────────────────
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.m4a
+tts_output/
+benchmark_audio/
+benchmark_audio_canonical/
+benchmark_audio_final/
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+logs/
+*.log
+tmp/
+
+# ── Frontend build artifacts ──────────────────────────────────────────────────
+frontend/.next/
+frontend/node_modules/
+
+# ── Archives / results ────────────────────────────────────────────────────────
+*.7z
+*.rar
+*.zip
+results/
+backup/
+
+# ── Jupyter / IDE ─────────────────────────────────────────────────────────────
+.vscode/
+.ipynb_checkpoints/
+*.ipynb
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Runtime markers (cluster) ─────────────────────────────────────────────────
+runtime/
+
+# ── Judge outputs (large JSONL result files) ──────────────────────────────────
+judge_outputs/
+
+# ── Copy files (development leftovers) ───────────────────────────────────────
+*" - Copy"*
+*" - Copy."*
+
+# ── Word documents ────────────────────────────────────────────────────────────
+*.docx
+*.doc

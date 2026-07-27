@@ -1,0 +1,56 @@
+C:\Users\shaik\Desktop\llmtutor\app\mic_stt_llm_tts - Copy.py
+C:\Users\shaik\Desktop\llmtutor\app\mic_stt_llm_tts.py
+C:\Users\shaik\Desktop\llmtutor\app\mic_stt_llm_tts_microphone.py
+C:\Users\shaik\Desktop\llmtutor\app\mic_stt_llm_tts_Oldinterrupt.py
+C:\Users\shaik\Desktop\llmtutor\app\mic_stt_llm_tts_step1.py
+C:\Users\shaik\Desktop\llmtutor\app\mic_stt_llm_tts_STEP2.py
+C:\Users\shaik\Desktop\llmtutor\app\mic_stt_llm_tts_without_interruption.py
+C:\Users\shaik\Desktop\llmtutor\app\stt_llm_tts_file.py
+C:\Users\shaik\Desktop\llmtutor\backup\mic_stt_llm_tts.py
+C:\Users\shaik\Desktop\llmtutor\frontend_api - Copy.py
+C:\Users\shaik\Desktop\llmtutor\frontend_api.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\benchmarks\backend_compare.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\benchmarks\baseline.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\benchmarks\chunk_sweep.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\benchmarks\compare_modes.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\benchmarks\custom_voice.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\benchmarks\generate_non_streaming_samples.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\benchmarks\generate_parity_samples.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\benchmarks\generate_parity_samples_icl.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\benchmarks\parakeet_coexistence.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\benchmarks\profile_ggml_ttfa.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\benchmarks\streaming.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\benchmarks\throughput.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\demo\server.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\examples\extract_speaker.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\examples\generate_with_embedding.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\examples\openai_server.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\examples\streaming_playback.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\faster_qwen3_tts\__init__.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\faster_qwen3_tts\cli.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\faster_qwen3_tts\ggml_backend.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\faster_qwen3_tts\model.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\qwen_stream_server.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\tests\test_e2e_parity.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\tests\test_ggml_backend.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\tests\test_sample_rate.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\tests\test_sampling.py
+C:\Users\shaik\Desktop\llmtutor\qwen_stream_runtime\tests\test_voice_clone_prompt_api.py
+C:\Users\shaik\Desktop\llmtutor\qwen_tts_server.py
+C:\Users\shaik\Desktop\llmtutor\scripts\test_qwen3_tts.py
+C:\Users\shaik\Desktop\llmtutor\tts\base_engine.py
+C:\Users\shaik\Desktop\llmtutor\tts\chatterbox_engine - Copy.py
+C:\Users\shaik\Desktop\llmtutor\tts\chatterbox_engine.py
+C:\Users\shaik\Desktop\llmtutor\tts\config.py
+C:\Users\shaik\Desktop\llmtutor\tts\elevenlabs_streaming_engine.py
+C:\Users\shaik\Desktop\llmtutor\tts\kokoro_engine - Copy.py
+C:\Users\shaik\Desktop\llmtutor\tts\kokoro_engine.py
+C:\Users\shaik\Desktop\llmtutor\tts\qwen3_http_engine.py
+C:\Users\shaik\Desktop\llmtutor\tts\qwen3_streaming_engine.py
+C:\Users\shaik\Desktop\llmtutor\tts\qwen3tts_engine.py
+C:\Users\shaik\Desktop\llmtutor\tts\tts_chatterbox - Copy.py
+C:\Users\shaik\Desktop\llmtutor\tts\tts_chatterbox.py
+C:\Users\shaik\Desktop\llmtutor\tts\tts_queue - Copy.py
+C:\Users\shaik\Desktop\llmtutor\tts\tts_queue.py
+C:\Users\shaik\Desktop\llmtutor\tts\voxtral_engine.py
+C:\Users\shaik\Desktop\llmtutor\tts\voxtral_server_engine.py

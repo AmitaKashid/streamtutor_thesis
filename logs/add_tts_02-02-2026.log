@@ -1,0 +1,82 @@
+[INFO] PROJECT = "C:\Users\shaik\Desktop\llmtutor"
+[INFO] TTS_SRC = "C:\Users\shaik\Desktop\TTS"
+[INFO] LOGDIR  = "C:\Users\shaik\Desktop\llmtutor\logs"
+
+[OK] Found project + venv + TTS source.
+
+[STEP] Copying TTS files into "C:\Users\shaik\Desktop\llmtutor\tts"
+
+[OK] Copy step complete.
+
+[STEP] Fixing imports inside copied TTS files (package-safe)
+
+[OK] Import patching done.
+
+[STEP] Updating "C:\Users\shaik\Desktop\llmtutor\requirements.txt" with minimal TTS deps (idempotent)
+
+[SKIP] chatterbox-tts==0.1.4 already present
+[SKIP] torchaudio already present
+[SKIP] sounddevice already present
+[SKIP] soundfile already present
+[OK] requirements.txt updated.
+
+[STEP] Creating app\stt_llm_tts_file.py (PowerShell safe writer)
+
+The string is missing the terminator: '@.
+    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : TerminatorExpectedAtEndOfString
+ 
+'import' is not recognized as an internal or external command,
+operable program or batch file.
+'import' is not recognized as an internal or external command,
+operable program or batch file.
+'from' is not recognized as an internal or external command,
+operable program or batch file.
+'ROOT' is not recognized as an internal or external command,
+operable program or batch file.
+'sys.path.insert' is not recognized as an internal or external command,
+operable program or batch file.
+'#' is not recognized as an internal or external command,
+operable program or batch file.
+'from' is not recognized as an internal or external command,
+operable program or batch file.
+'from' is not recognized as an internal or external command,
+operable program or batch file.
+'#' is not recognized as an internal or external command,
+operable program or batch file.
+'from' is not recognized as an internal or external command,
+operable program or batch file.
+'from' is not recognized as an internal or external command,
+operable program or batch file.
+'#' is not recognized as an internal or external command,
+operable program or batch file.
+'from' is not recognized as an internal or external command,
+operable program or batch file.
+'from' is not recognized as an internal or external command,
+operable program or batch file.
+'def' is not recognized as an internal or external command,
+operable program or batch file.
+'import' is not recognized as an internal or external command,
+operable program or batch file.
+Access is denied.
+'p.add_argument' is not recognized as an internal or external command,
+operable program or batch file.
+'p.add_argument' is not recognized as an internal or external command,
+operable program or batch file.
+'p.add_argument' is not recognized as an internal or external command,
+operable program or batch file.
+'p.add_argument' is not recognized as an internal or external command,
+operable program or batch file.
+'p.add_argument' is not recognized as an internal or external command,
+operable program or batch file.
+'p.add_argument' is not recognized as an internal or external command,
+operable program or batch file.
+'p.add_argument' is not recognized as an internal or external command,
+operable program or batch file.
+'p.add_argument' is not recognized as an internal or external command,
+operable program or batch file.
+'args' is not recognized as an internal or external command,
+operable program or batch file.
+'wav_path' is not recognized as an internal or external command,
+operable program or batch file.
+The syntax of the command is incorrect.

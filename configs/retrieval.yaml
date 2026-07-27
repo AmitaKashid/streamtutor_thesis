@@ -1,0 +1,24 @@
+# configs/retrieval.yaml
+
+# Embedding model used for building and querying the index
+embedding_model: "BAAI/bge-small-en-v1.5"
+
+# Chunk file used for embeddings (slide-level chunks = 1 chunk per slide)
+kb_chunks_path: "data/kb/chunks_slide_level.jsonl"
+
+# Full slide texts used for context formatting (for citations/metadata)
+kb_slides_path: "data/kb/slides_clean.jsonl"
+
+# Where the vector index is stored
+index_dir: "data/index"
+index_name: "bge_small_slide_level"   # produces data/index/bge_small_slide_level.npz
+
+# Runtime retrieval parameters
+top_k: 5
+
+# device: auto|cpu|cuda
+device: "auto"
+batch_size: 64
+
+# Optional: keep context short to reduce LLM latency
+max_context_chars: 6000
