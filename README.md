@@ -6,29 +6,125 @@ StreamTutor is a research system for spoken interaction with a Data Mining tutor
 
 Developed as a master's thesis project at Otto von Guericke University Magdeburg, the system supports controlled comparison of batch generation, incremental speech synthesis, and streaming text-to-speech input.
 
-## Research objectives
+## Research questions and analytical framing
 
 - **Responsiveness:** characterize the contribution of recognition, retrieval, generation, synthesis, and playback to perceived response latency.
 - **Grounding:** examine whether retrieved course material improves the support and correctness of generated explanations.
 - **Instructional behavior:** compare prompt-conditioned teaching strategies under a common evaluation protocol.
 - **Interaction continuity:** support interruption and response reformulation using the student's new utterance and previously spoken content.
 
-## Architecture
+The experimental object is a configuration $c$ comprising recognition, retrieval, language model, instructional prompt, chunking policy, synthesis backend, and playback buffering. Its behavior is assessed through a latency distribution and a vector of quality judgments rather than a single headline score:
+
+$$
+\mathbf{Q}(c) = (Q_{\mathrm{correct}}, Q_{\mathrm{faithful}}, Q_{\mathrm{clear}}, Q_{\mathrm{complete}}, Q_{\mathrm{pedagogical}}).
+$$
+
+The research objective is to identify configurations with favorable latency–quality trade-offs. A configuration is Pareto-dominated when another is no worse on all declared objectives and strictly better on at least one. This framing avoids assuming that faster responses or longer explanations are intrinsically better.
+
+| Research question | Controlled comparison | Principal outcomes |
+|---|---|---|
+| RQ1: How does incremental delivery affect responsiveness? | Batch, chunked, and streaming-input modes | First audible response, completion time, underruns |
+| RQ2: What does retrieval contribute? | Same questions and generator, with and without retrieved evidence | Correctness, faithfulness, retrieval relevance |
+| RQ3: How does instructional conditioning alter response quality? | Fixed model and evidence, varied teaching prompt | Strategy adherence, useful guidance, clarity |
+| RQ4: How reliably does the tutor recover from interruptions? | Standardized interruptions across delivery modes | Stop latency, stale output, recovery relevance |
+
+These are evaluation questions, not claims of established experimental findings.
+
+## System architecture
+
+The architecture comprises a foreground interaction pipeline, a playback-control path, and an optional evaluation path. The diagrams distinguish data dependencies from control signals; they describe the inspected Python runtime rather than assuming an unverified web deployment.
+
+### 1. Recognition, retrieval, and response construction
 
 ```mermaid
 flowchart TD
-    A[Microphone or audio file] --> B[Speech recognition]
-    B --> C[Course-context retrieval]
-    C --> D[Teaching prompt and LLM]
-    D --> E[Text chunking and speech synthesis]
-    E --> F[Queued audio playback]
-    D -. Question, answer, context .-> G[Optional asynchronous LLM judge]
-    F -. Spoken context on interruption .-> D
+    subgraph Input[Audio acquisition and recognition]
+        MIC[Microphone callback] --> FR[Timestamped frame queue]
+        FR --> VAD[VAD and utterance segmentation]
+        FILE[Audio file] --> LOAD[Mono 16 kHz conversion]
+        VAD --> ASR[STT backend]
+        LOAD --> ASR
+        ASR --> FILTER[Transcript validation]
+    end
+    subgraph Reasoning[Evidence and instructional conditioning]
+        FILTER --> QUERY[Student query]
+        QUERY --> RET[Optional top-k retrieval]
+        INDEX[Course retrieval index] --> RET
+        RET --> CTX[Formatted context and source IDs]
+        CTX --> PROMPT[Prompt composition]
+        QUERY --> PROMPT
+        STYLE[Teaching strategy] --> PROMPT
+        SNAP[Interruption snapshot] -. Recovery context .-> PROMPT
+        PROMPT --> LLM[Local GGUF generation]
+        REG[Model registry and generation settings] --> LLM
+    end
+    LLM --> TEXT[Complete answer or incremental text]
+    TEXT --> SPEECH[Speech delivery subsystem]
+    TEXT -. Generated response .-> RECORD[Evaluation input]
+    CTX -. Retrieved evidence .-> RECORD
+    QUERY -. Student question .-> RECORD
+    STYLE -. Instructional condition .-> RECORD
+    RECORD -. Optional asynchronous call .-> JUDGE[Separate judge instance]
 ```
 
-Retrieval is optional. When enabled, retrieved passages are formatted into the teaching prompt, and their identifiers are retained for inspection and evaluation. Incremental generation feeds text into speech synthesis before the full response is complete. Punctuation-aware chunking and waveform crossfading address the trade-off between early playback and continuity across synthesized segments.
+**Evidence flow.** Retrieval uses the student's utterance, or the new interruption utterance, as its query. Retrieved passages condition response generation; identifiers accompany evaluation calls. This enables evidence-aware assessment, although retaining source IDs alone does not establish claim-level citation correctness.
 
-The implementation separates model providers, model registration, audio capture, text segmentation, synthesis, and playback. The supplied voice entry point uses the llama.cpp provider; a Hugging Face provider is also present in the language-model components.
+**Instructional conditioning.** The prompt composer selects a teaching style and combines it with the query and available evidence. These styles define experimental conditions. The label `adaptive` denotes a prompt selection, not a demonstrated learner-state estimator.
+
+### 2. Incremental synthesis and playback
+
+```mermaid
+flowchart TD
+    GEN[LLM text iterator] --> SEG[Punctuation-aware segmentation]
+    SEG --> CLEAN[Text cleanup and duplicate-chunk filtering]
+    CLEAN --> MODE{Execution mode}
+    MODE -->|stream-chunked| TQ[Text queue]
+    TQ --> WORK[TTS worker thread]
+    WORK --> WAV[Waveform conversion]
+    WAV --> FADE[Crossfade and retained tail]
+    MODE -->|stream-input| HTTP[Streaming TTS adapter]
+    HTTP --> PCM[Incoming audio chunks]
+    FADE --> BUFFER[Audio prebuffer]
+    PCM --> BUFFER
+    BUFFER --> AQ[Bounded playback queue]
+    AQ --> CALLBACK[Audio-device callback]
+    CALLBACK --> SOUND[Audible response]
+    CALLBACK -. Chunk start and finish .-> STATE[Playback context]
+    STOP[Interruption signal] -. Stop and flush .-> AQ
+    STOP -. Cooperative cancellation .-> WORK
+    STOP -. Stop chunk emission .-> SEG
+```
+
+The chunked path uses a producer–consumer arrangement: language-model generation supplies a text queue while a worker synthesizes segments. Audio playback runs through a separate device callback. The audio queue is bounded; the text queue in the inspected implementation is unbounded. Consequently, bounded playback buffering should not be interpreted as end-to-end backpressure.
+
+Segmentation uses punctuation, character thresholds, and elapsed time. The inspected streaming path prebuffers approximately **0.9 seconds of generated audio** before release. This is an audio-duration threshold, not a fixed wall-clock delay. Crossfading is applied in the chunked path; equivalent behavior is not established for the HTTP streaming path.
+
+### 3. Interruption and conversational recovery
+
+```mermaid
+sequenceDiagram
+    participant Student
+    participant Capture as Capture and STT
+    participant Control as Playback control
+    participant Pipeline as Generation and TTS
+    participant Audio as Audio output
+    Pipeline->>Audio: Enqueue synthesized segments
+    Audio-->>Control: Chunk-start and chunk-finish callbacks
+    Student->>Capture: New speech during response
+    Capture->>Control: Accepted interruption
+    Control->>Control: Snapshot previous and current chunk
+    Control->>Audio: Stop playback and flush audio
+    Control-->>Pipeline: Set interruption event
+    Capture->>Capture: Segment and transcribe new utterance
+    Capture->>Pipeline: Request recovery after stop wait
+    Pipeline->>Control: Read frozen interruption context
+    Pipeline->>Pipeline: Retrieve evidence and rebuild teaching prompt
+    Pipeline->>Audio: Deliver revised response
+```
+
+The recovery prompt incorporates the new utterance and a snapshot of the previous completed chunk and the current chunk. The current chunk may have been heard only partially; therefore the snapshot approximates delivered context rather than providing word-level alignment. Chunked playback supplies text-associated callbacks, whereas the inspected HTTP streaming path enqueues audio without those text associations. Recovery-context fidelity must therefore be assessed separately by mode.
+
+Stopping audio and stopping inference are distinct events. Cancellation is cooperative, and an in-flight synthesis call may continue after playback stops. The current recovery loop uses a bounded wait for the preceding pipeline; this is not proof of race-free cancellation. Speaker-mode heuristics filter likely feedback, but do not constitute acoustic echo cancellation.
 
 ## Capabilities
 
@@ -112,6 +208,17 @@ The current code exposes several internal timing events. Physical speech boundar
 
 For comparative experiments, report p50 and p95, sample count, failures, hardware, model quantization, output length, and warm-up policy. Evaluate cold and warm runs separately. Judge-enabled and judge-disabled runs should also be distinguished: asynchronous evaluation can still compete for GPU memory and compute.
 
+For a fully instrumented turn, let $t_e$ denote physical speech end, $t_u$ utterance readiness, $t_x$ transcript availability, $t_r$ retrieval completion, and $t_a$ first audible output. The critical-path decomposition is
+
+$$
+L_{\mathrm{response}} = t_a-t_e
+= (t_u-t_e)+(t_x-t_u)+(t_r-t_x)+(t_a-t_r).
+$$
+
+The last term contains overlapping generation, chunk accumulation, synthesis, buffering, and device scheduling. It must be measured as a wall-clock interval. A fast first token does not imply a fast first spoken response.
+
+**Instrumentation interpretation.** In the inspected streaming implementation, `first_audio_t` is recorded around queue release, not measured at the speaker. The corresponding value is a software proxy. Moreover, the interruption path initializes its total timer after transcription. Cross-mode comparisons require aligned timestamp origins before aggregation. Some TTS timing fields are populated only in the chunked path; unavailable values must remain missing rather than being treated as zero.
+
 ### LLM-as-a-Judge
 
 The voice pipeline optionally invokes `LocalLLMJudge` using a separately selected model. Evaluation calls receive the question, generated answer, teaching style, retrieved context and identifiers, interruption context, and execution metadata. This supports context-aware assessment beyond reference-answer matching.
@@ -131,6 +238,31 @@ The following is the intended evaluation specification; the supplied files expos
 **Calibration.** Compare judge ratings with independent human annotations on a representative subset. Report agreement using a measure suited to the scale, such as weighted kappa for ordinal ratings, alongside dimension-level discrepancies. Assess sensitivity to response length, teaching style, and model family. A separately instantiated model is not necessarily an independent evaluator: shared model families and self-evaluation can introduce correlated preferences.
 
 **Reporting.** Present dimension-level distributions and paired differences between configurations, with uncertainty estimated over questions. For repeated turns or generations, preserve question or dialogue grouping when estimating uncertainty. Avoid a single aggregate score unless its weighting is justified in advance. Automated ratings measure rubric adherence; claims about student learning require a separate learner study.
+
+#### Evaluation record and validity controls
+
+A reproducible judgment should associate the response with its question ID, configuration ID, evidence passages, reference answer where applicable, teaching condition, judge revision, rubric revision, dimension scores, rationale, and parse status. The existing integration passes the question, answer, context, source IDs, and run metadata; the complete record specification is a target for the evaluation implementation.
+
+For paired configuration comparisons, compute per-question differences before aggregation:
+
+$$
+\Delta_d = \frac{1}{N}\sum_{i=1}^{N}\left[s_d(y_i^{A})-s_d(y_i^{B})\right].
+$$
+
+Here $s_d$ is a declared rubric score for dimension $d$. Numerical averages assume an explicit interpretation of score spacing; retain ordinal distributions and pairwise outcomes so conclusions do not depend solely on that assumption.
+
+| Validity concern | Required experimental control |
+|---|---|
+| Self-preference and shared model errors | Human calibration; judge-family sensitivity analysis |
+| Verbosity bias | Report response length and examine length-stratified disagreements |
+| Position bias in pairwise evaluation | Randomize and reverse candidate order |
+| Instruction leakage from evidence | Delimit retrieved text and answers as material to assess |
+| Conflation of faithfulness and truth | Judge evidence support separately from reference correctness |
+| Teaching-style mismatch | Score completeness relative to the instructional objective; a useful hint need not reveal the full solution |
+| Generated versus heard response | Identify interrupted responses and assess delivered content separately |
+| Evaluation interference | Isolate judging or report resource contention explicitly |
+
+In batch mode, the asynchronous judge call is submitted before synthesis; in the streaming path, it is submitted after playback handling. These schedules differ and should be controlled when interpreting latency. An asynchronous API call alone does not guarantee negligible interference.
 
 ### Experimental comparisons
 
