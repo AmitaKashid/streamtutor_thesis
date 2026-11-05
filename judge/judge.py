@@ -16,10 +16,10 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[1]
-PROMPT_VERSION = "1.0"
+PROMPT_VERSION = "1.1"
 RUBRIC_VERSION = "1.0"
 SCHEMA_VERSION = "1.0"
-DEFAULT_PROMPT_PATH = ROOT / "judge" / "judge_prompt_v1.txt"
+DEFAULT_PROMPT_PATH = ROOT / "judge" / "judge_prompt_v1_1.txt"
 DEFAULT_SCHEMA_PATH = ROOT / "docs" / "judge_evaluation" / "schema_v1.json"
 
 
@@ -421,6 +421,10 @@ class LocalLLMJudge:
                 "RETRY_NOTICE: Your previous response was invalid. "
                 "Return exactly one JSON object matching output schema v1.0. "
                 "Do not include Markdown or explanatory text. "
+                "Every critical_errors item must contain exactly type, description, "
+                "and evidence. Do not use quotation or any additional property. "
+                "Evidence is mandatory for every critical error. Return an empty "
+                "critical_errors array when no critical error exists. "
                 f"Validation error: {first_attempt['validation_error']}"
             )
             second_attempt, validated = self._run_generation_attempt(

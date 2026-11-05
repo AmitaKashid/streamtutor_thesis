@@ -6,7 +6,14 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from judge.judge import LocalLLMJudge, derive_verdict, parse_exact_json_object
+from judge.judge import (
+    DEFAULT_PROMPT_PATH,
+    PROMPT_VERSION,
+    LocalLLMJudge,
+    derive_verdict,
+    load_judge_prompt,
+    parse_exact_json_object,
+)
 
 
 def valid_result(*, context_applicable: bool = True) -> dict:
@@ -70,6 +77,16 @@ class JudgeContractV1Tests(unittest.TestCase):
         parsed, error = parse_exact_json_object('prefix {"x": 1} suffix')
         self.assertIsNone(parsed)
         self.assertIn("json_decode_error", error)
+
+    def test_prompt_v1_1_defines_critical_error_serialization(self):
+        self.assertEqual(PROMPT_VERSION, "1.1")
+        self.assertEqual(DEFAULT_PROMPT_PATH.name, "judge_prompt_v1_1.txt")
+        prompt = load_judge_prompt()
+        self.assertIn('"critical_errors": [', prompt)
+        self.assertIn('"description":', prompt)
+        self.assertIn('"evidence":', prompt)
+        self.assertIn("Do not use quotation", prompt)
+        self.assertIn('Use "critical_errors": []', prompt)
 
     def test_valid_result_is_accepted_and_verdict_is_derived(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -155,7 +172,7 @@ class JudgeContractV1Tests(unittest.TestCase):
             )
             self.assertEqual(record["turn_id"], "turn-001")
             self.assertEqual(record["judge"]["status"], "valid")
-            self.assertEqual(record["judge_configuration"]["prompt_version"], "1.0")
+            self.assertEqual(record["judge_configuration"]["prompt_version"], "1.1")
             self.assertEqual(record["judge_configuration"]["model_id"], "test-model")
             self.assertEqual(record["judge"]["attempts"][0]["metrics"]["new_tokens"], 40)
             saved = json.loads((Path(directory) / "results.jsonl").read_text())
