@@ -9,73 +9,69 @@ import time
 import unicodedata
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor, wait as wait_for_futures
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
+
+from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[1]
+PROMPT_VERSION = "1.0"
+RUBRIC_VERSION = "1.0"
+SCHEMA_VERSION = "1.0"
+DEFAULT_PROMPT_PATH = ROOT / "judge" / "judge_prompt_v1.txt"
+DEFAULT_SCHEMA_PATH = ROOT / "docs" / "judge_evaluation" / "schema_v1.json"
 
 
-def load_judge_prompt() -> str:
-    prompt_path = ROOT / "judge" / "judge_prompt.txt"
-    return prompt_path.read_text(encoding="utf-8")
+def load_judge_prompt(path: str | Path = DEFAULT_PROMPT_PATH) -> str:
+    return Path(path).read_text(encoding="utf-8")
 
 
-def safe_json_extract(text: str) -> Optional[dict[str, Any]]:
-    text = text.strip()
-
+def parse_exact_json_object(text: str) -> tuple[dict[str, Any] | None, str | None]:
+    """Parse exactly one JSON object without extracting or repairing text."""
+    stripped = text.strip()
+    if not stripped:
+        return None, "empty_output"
     try:
-        data = json.loads(text)
-        if isinstance(data, dict):
-            return data
-    except Exception:
-        pass
-
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        candidate = text[start : end + 1]
-        try:
-            data = json.loads(candidate)
-            if isinstance(data, dict):
-                return data
-        except Exception:
-            return None
-
-    return None
+        data = json.loads(stripped)
+    except json.JSONDecodeError as exc:
+        return None, f"json_decode_error: {exc.msg} at line {exc.lineno} column {exc.colno}"
+    if not isinstance(data, dict):
+        return None, "top_level_value_must_be_an_object"
+    return data, None
 
 
-def normalize_judge_result(result: dict[str, Any]) -> dict[str, Any]:
-    fields = [
-        "correctness",
-        "clarity",
-        "completeness",
-        "pedagogical_value",
-        "faithfulness_to_context",
-    ]
-
-    out: dict[str, Any] = {}
-
-    for field in fields:
-        try:
-            value = int(result.get(field, 0))
-        except Exception:
-            value = 0
-        out[field] = max(0, min(5, value))
-
-    out["reason"] = str(result.get("reason", "")).strip()
+def derive_verdict(result: dict[str, Any]) -> str:
+    """Apply rubric v1 thresholds after strict schema validation."""
+    scores = result["scores"]
+    groundedness = scores["groundedness"]
+    has_critical_error = bool(result["critical_errors"])
 
     if (
-        out["correctness"] <= 2
-        or out["clarity"] <= 2
-        or out["completeness"] <= 2
+        has_critical_error
+        or scores["correctness"] <= 2
+        or scores["completeness"] <= 2
+        or (
+            groundedness["applicable"]
+            and groundedness["score"] <= 2
+        )
     ):
-        out["decision"] = "revise"
-    elif out["correctness"] >= 4 and out["clarity"] >= 3:
-        out["decision"] = "accept"
-    else:
-        out["decision"] = "review"
+        return "revise"
 
-    return out
+    if (
+        scores["correctness"] >= 4
+        and (
+            not groundedness["applicable"]
+            or groundedness["score"] >= 4
+        )
+        and scores["completeness"] >= 3
+        and scores["clarity"] >= 3
+        and scores["pedagogy"] >= 3
+        and scores["learner_appropriateness"] >= 3
+    ):
+        return "accept"
+
+    return "review"
 
 
 def normalize_question(text: str) -> str:
@@ -202,9 +198,26 @@ class LocalLLMJudge:
         bertscore_model: str = "microsoft/deberta-large-mnli",
         bertscore_device: str = "cpu",
         bertscore_rescale_with_baseline: bool = True,
+        prompt_path: str | Path = DEFAULT_PROMPT_PATH,
+        schema_path: str | Path = DEFAULT_SCHEMA_PATH,
+        model_id: str = "unknown",
+        backend: str = "unknown",
+        quantization: str | None = None,
+        hardware: str | None = None,
+        max_pending: int = 64,
     ):
         self.llm = llm
-        self.prompt = load_judge_prompt()
+        self.prompt_path = Path(prompt_path)
+        self.schema_path = Path(schema_path)
+        self.prompt = load_judge_prompt(self.prompt_path)
+        self.schema = json.loads(self.schema_path.read_text(encoding="utf-8"))
+        Draft202012Validator.check_schema(self.schema)
+        self.schema_validator = Draft202012Validator(self.schema)
+        self.model_id = model_id
+        self.backend = backend
+        self.quantization = quantization
+        self.hardware = hardware
+        self.max_pending = max(1, int(max_pending))
         self.output_path = Path(output_path)
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -230,6 +243,7 @@ class LocalLLMJudge:
         )
         self._pending_lock = threading.Lock()
         self._pending: dict[str, Future] = {}
+        self._submitted_turn_ids: set[str] = set()
         self._closed = False
         self.last_submit_error: str | None = None
 
@@ -243,32 +257,116 @@ class LocalLLMJudge:
         retrieved_ids: list[str] | None = None,
         interruption_text: str | None = None,
         interrupted_chunks: list[str] | None = None,
+        learner_level: str | None = None,
+        reference_answers: list[str] | None = None,
+        response_status: str | None = None,
+        retrieval_status: str | None = None,
     ) -> str:
         retrieved_ids = retrieved_ids or []
         interrupted_chunks = interrupted_chunks or []
+        reference_answers = reference_answers or []
+        if response_status is None:
+            response_status = (
+                "interrupted"
+                if interruption_text or interrupted_chunks
+                else "complete"
+            )
+        if retrieval_status is None:
+            retrieval_status = "provided" if context.strip() else "not_provided"
 
-        return f"""
-Student Question:
-{question}
+        evaluation_input = {
+            "learner_question": question,
+            "tutor_answer": answer,
+            "teaching_style": teaching_style,
+            "learner_level": learner_level,
+            "response_status": response_status,
+            "retrieval_status": retrieval_status,
+            "retrieved_chunk_ids": retrieved_ids,
+            "retrieved_context": context,
+            "reference_answers": reference_answers,
+            "interruption_text": interruption_text,
+            "last_spoken_chunks_before_interruption": interrupted_chunks,
+        }
+        serialized = json.dumps(evaluation_input, ensure_ascii=False, indent=2)
+        return (
+            "EVALUATION_INPUT_START\n"
+            f"{serialized}\n"
+            "EVALUATION_INPUT_END"
+        )
 
-Assistant Answer:
-{answer}
+    def _run_generation_attempt(
+        self,
+        *,
+        prompt: str,
+        attempt_number: int,
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        started = time.perf_counter()
+        try:
+            with self._llm_lock:
+                generation = self.llm.generate(prompt)
+        except Exception as exc:
+            wall_seconds = time.perf_counter() - started
+            return (
+                {
+                    "attempt": attempt_number,
+                    "raw_output": None,
+                    "json_valid": False,
+                    "schema_valid": False,
+                    "validation_error": None,
+                    "generation_error": {
+                        "type": type(exc).__name__,
+                        "message": str(exc),
+                    },
+                    "metrics": {"wall_seconds": wall_seconds},
+                },
+                None,
+            )
 
-Teaching Style:
-{teaching_style}
+        wall_seconds = time.perf_counter() - started
+        if isinstance(generation, str):
+            raw_text = generation.strip()
+        else:
+            raw_text = (getattr(generation, "text", "") or "").strip()
 
-Retrieved Chunk IDs:
-{retrieved_ids}
+        metrics = {
+            "wall_seconds": wall_seconds,
+            "server_total_seconds": getattr(generation, "total_seconds", None),
+            "prompt_tokens": getattr(generation, "prompt_tokens", None),
+            "new_tokens": getattr(generation, "new_tokens", None),
+            "tokens_per_second": getattr(
+                generation,
+                "tokens_per_second",
+                None,
+            ),
+        }
+        parsed, parse_error = parse_exact_json_object(raw_text)
+        validation_error = parse_error
+        schema_valid = False
 
-Retrieved Context:
-{context}
+        if parsed is not None:
+            errors = sorted(
+                self.schema_validator.iter_errors(parsed),
+                key=lambda error: tuple(str(part) for part in error.absolute_path),
+            )
+            if errors:
+                first_error = errors[0]
+                location = ".".join(str(part) for part in first_error.absolute_path)
+                prefix = f"{location}: " if location else ""
+                validation_error = prefix + first_error.message
+            else:
+                schema_valid = True
+                validation_error = None
 
-Interruption Text:
-{interruption_text or ""}
-
-Last Spoken Chunks Before Interruption:
-{interrupted_chunks}
-""".strip()
+        attempt = {
+            "attempt": attempt_number,
+            "raw_output": raw_text,
+            "json_valid": parsed is not None,
+            "schema_valid": schema_valid,
+            "validation_error": validation_error,
+            "generation_error": None,
+            "metrics": metrics,
+        }
+        return attempt, parsed if schema_valid else None
 
     def judge_answer(
         self,
@@ -280,6 +378,10 @@ Last Spoken Chunks Before Interruption:
         retrieved_ids: list[str] | None = None,
         interruption_text: str | None = None,
         interrupted_chunks: list[str] | None = None,
+        learner_level: str | None = None,
+        reference_answers: list[str] | None = None,
+        response_status: str | None = None,
+        retrieval_status: str | None = None,
     ) -> dict[str, Any]:
         user_input = self.build_user_input(
             question=question,
@@ -289,30 +391,67 @@ Last Spoken Chunks Before Interruption:
             retrieved_ids=retrieved_ids,
             interruption_text=interruption_text,
             interrupted_chunks=interrupted_chunks,
+            learner_level=learner_level,
+            reference_answers=reference_answers,
+            response_status=response_status,
+            retrieval_status=retrieval_status,
         )
+        combined_prompt = f"{self.prompt}\n\n{user_input}"
+        attempts: list[dict[str, Any]] = []
 
-        with self._llm_lock:
-            combined_prompt = f"{self.prompt}\n\n{user_input}"
-            result = self.llm.generate(combined_prompt)
+        first_attempt, validated = self._run_generation_attempt(
+            prompt=combined_prompt,
+            attempt_number=1,
+        )
+        attempts.append(first_attempt)
 
-        if isinstance(result, str):
-            raw_text = result.strip()
-        else:
-            raw_text = (getattr(result, "text", "") or "").strip()
-
-        parsed = safe_json_extract(raw_text)
-        if parsed is None:
-            parsed = {
-                "correctness": 0,
-                "clarity": 0,
-                "completeness": 0,
-                "pedagogical_value": 0,
-                "faithfulness_to_context": 0,
-                "reason": f"JSON parsing failed. Raw output: {raw_text[:500]}",
-                "decision": "review",
+        if first_attempt["generation_error"] is not None:
+            return {
+                "status": "error",
+                "result": None,
+                "derived_verdict": None,
+                "attempt_count": 1,
+                "retry_used": False,
+                "attempts": attempts,
             }
 
-        return normalize_judge_result(parsed)
+        if validated is None:
+            retry_prompt = (
+                f"{combined_prompt}\n\n"
+                "RETRY_NOTICE: Your previous response was invalid. "
+                "Return exactly one JSON object matching output schema v1.0. "
+                "Do not include Markdown or explanatory text. "
+                f"Validation error: {first_attempt['validation_error']}"
+            )
+            second_attempt, validated = self._run_generation_attempt(
+                prompt=retry_prompt,
+                attempt_number=2,
+            )
+            attempts.append(second_attempt)
+
+        if validated is None:
+            final_status = (
+                "error"
+                if attempts[-1]["generation_error"] is not None
+                else "invalid"
+            )
+            return {
+                "status": final_status,
+                "result": None,
+                "derived_verdict": None,
+                "attempt_count": len(attempts),
+                "retry_used": len(attempts) > 1,
+                "attempts": attempts,
+            }
+
+        return {
+            "status": "valid",
+            "result": validated,
+            "derived_verdict": derive_verdict(validated),
+            "attempt_count": len(attempts),
+            "retry_used": len(attempts) > 1,
+            "attempts": attempts,
+        }
 
     def _get_bleu_metric(self):
         if self._bleu_metric is None:
@@ -505,10 +644,35 @@ Last Spoken Chunks Before Interruption:
         interrupted_chunks: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         question_id: str | None = None,
+        turn_id: str | None = None,
+        learner_level: str | None = None,
+        reference_answers: list[str] | None = None,
+        response_status: str | None = None,
+        retrieval_status: str | None = None,
     ) -> dict[str, Any]:
         metadata = metadata or {}
+        turn_id = str(turn_id or metadata.get("turn_id") or f"turn-{uuid.uuid4().hex}")
 
-        judge_scores = self.judge_answer(
+        if reference_answers is None:
+            reference_item, _match_type, _match_error = self.reference_registry.match(
+                question=question,
+                question_id=question_id,
+            )
+            if reference_item is not None:
+                reference_answers = list(reference_item["reference_answers"])
+            else:
+                reference_answers = []
+
+        if response_status is None:
+            response_status = (
+                "interrupted"
+                if interruption_text or interrupted_chunks
+                else "complete"
+            )
+        if retrieval_status is None:
+            retrieval_status = "provided" if context.strip() else "not_provided"
+
+        judge_result = self.judge_answer(
             question=question,
             answer=answer,
             teaching_style=teaching_style,
@@ -516,6 +680,10 @@ Last Spoken Chunks Before Interruption:
             retrieved_ids=retrieved_ids,
             interruption_text=interruption_text,
             interrupted_chunks=interrupted_chunks,
+            learner_level=learner_level,
+            reference_answers=reference_answers,
+            response_status=response_status,
+            retrieval_status=retrieval_status,
         )
         reference_metrics = self.score_reference_metrics(
             question=question,
@@ -524,16 +692,32 @@ Last Spoken Chunks Before Interruption:
         )
 
         record = {
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "turn_id": turn_id,
             "question_id": question_id,
             "question": question,
             "answer": answer,
             "teaching_style": teaching_style,
+            "learner_level": learner_level,
+            "response_status": response_status,
+            "retrieval_status": retrieval_status,
             "retrieved_ids": retrieved_ids or [],
             "context": context,
+            "reference_answers": reference_answers,
             "interruption_text": interruption_text,
             "interrupted_chunks": interrupted_chunks or [],
-            "judge": judge_scores,
+            "judge": judge_result,
+            "judge_configuration": {
+                "model_id": self.model_id,
+                "backend": self.backend,
+                "quantization": self.quantization,
+                "hardware": self.hardware,
+                "prompt_version": PROMPT_VERSION,
+                "rubric_version": RUBRIC_VERSION,
+                "schema_version": SCHEMA_VERSION,
+                "prompt_path": str(self.prompt_path),
+                "schema_path": str(self.schema_path),
+            },
             "reference_metrics": reference_metrics,
             "metadata": metadata,
         }
@@ -544,7 +728,10 @@ Last Spoken Chunks Before Interruption:
     def _evaluation_finished(self, task_id: str, future: Future) -> None:
         try:
             record = future.result()
-            decision = record.get("judge", {}).get("decision", "unknown")
+            decision = record.get("judge", {}).get(
+                "derived_verdict",
+                "unknown",
+            )
             print(
                 f"[JUDGE] Evaluation saved: {task_id} "
                 f"(decision={decision}) -> {self.output_path}"
@@ -560,16 +747,37 @@ Last Spoken Chunks Before Interruption:
                 self._pending.pop(task_id, None)
 
     def judge_and_log_async(self, **kwargs) -> str | None:
+        kwargs = dict(kwargs)
+        metadata = kwargs.get("metadata") or {}
+        turn_id = str(
+            kwargs.get("turn_id")
+            or metadata.get("turn_id")
+            or f"turn-{uuid.uuid4().hex}"
+        )
+        kwargs["turn_id"] = turn_id
+
         with self._pending_lock:
             if self._closed:
                 self.last_submit_error = "The runtime evaluator is shutting down."
                 return None
 
+            if len(self._pending) >= self.max_pending:
+                self.last_submit_error = (
+                    f"Judge queue is full ({self.max_pending} pending evaluations)."
+                )
+                return None
+
+            if turn_id in self._submitted_turn_ids:
+                self.last_submit_error = f"Duplicate judge turn_id rejected: {turn_id}"
+                return None
+
             task_id = f"judge-{uuid.uuid4().hex[:12]}"
 
             try:
+                self._submitted_turn_ids.add(turn_id)
                 future = self._executor.submit(self.judge_and_log, **kwargs)
             except Exception as exc:
+                self._submitted_turn_ids.discard(turn_id)
                 self.last_submit_error = f"{type(exc).__name__}: {exc}"
                 return None
 

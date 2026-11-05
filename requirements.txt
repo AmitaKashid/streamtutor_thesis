@@ -59,6 +59,7 @@ websockets
 python-multipart
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
+jsonschema==4.26.0
 PyYAML
 tqdm
 loguru
