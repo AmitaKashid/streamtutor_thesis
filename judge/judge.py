@@ -16,10 +16,10 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[1]
-PROMPT_VERSION = "1.1"
+PROMPT_VERSION = "1.2"
 RUBRIC_VERSION = "1.0"
 SCHEMA_VERSION = "1.0"
-DEFAULT_PROMPT_PATH = ROOT / "judge" / "judge_prompt_v1_1.txt"
+DEFAULT_PROMPT_PATH = ROOT / "judge" / "judge_prompt_v1_2.txt"
 DEFAULT_SCHEMA_PATH = ROOT / "docs" / "judge_evaluation" / "schema_v1.json"
 
 

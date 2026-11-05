@@ -78,9 +78,9 @@ class JudgeContractV1Tests(unittest.TestCase):
         self.assertIsNone(parsed)
         self.assertIn("json_decode_error", error)
 
-    def test_prompt_v1_1_defines_critical_error_serialization(self):
-        self.assertEqual(PROMPT_VERSION, "1.1")
-        self.assertEqual(DEFAULT_PROMPT_PATH.name, "judge_prompt_v1_1.txt")
+    def test_prompt_v1_2_defines_critical_error_serialization(self):
+        self.assertEqual(PROMPT_VERSION, "1.2")
+        self.assertEqual(DEFAULT_PROMPT_PATH.name, "judge_prompt_v1_2.txt")
         prompt = load_judge_prompt()
         self.assertIn('"critical_errors": [', prompt)
         self.assertIn('"description":', prompt)
@@ -172,7 +172,7 @@ class JudgeContractV1Tests(unittest.TestCase):
             )
             self.assertEqual(record["turn_id"], "turn-001")
             self.assertEqual(record["judge"]["status"], "valid")
-            self.assertEqual(record["judge_configuration"]["prompt_version"], "1.1")
+            self.assertEqual(record["judge_configuration"]["prompt_version"], "1.2")
             self.assertEqual(record["judge_configuration"]["model_id"], "test-model")
             self.assertEqual(record["judge"]["attempts"][0]["metrics"]["new_tokens"], 40)
             saved = json.loads((Path(directory) / "results.jsonl").read_text())
