@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://streamtutor.local/schemas/judge-output-v1.schema.json",
+  "title": "StreamTutor Judge Output v1",
+  "description": "Strict schema for model-produced educational answer judgments. The application derives the overall verdict after validation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "rubric_version",
+    "scores",
+    "retrieval_relevance",
+    "critical_errors",
+    "uncertain",
+    "uncertainty_reason",
+    "appropriateness_assumption",
+    "rationale"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "rubric_version": {
+      "const": "1.0"
+    },
+    "scores": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "correctness",
+        "groundedness",
+        "completeness",
+        "clarity",
+        "pedagogy",
+        "learner_appropriateness"
+      ],
+      "properties": {
+        "correctness": {
+          "$ref": "#/$defs/required_score"
+        },
+        "groundedness": {
+          "$ref": "#/$defs/applicable_score"
+        },
+        "completeness": {
+          "$ref": "#/$defs/required_score"
+        },
+        "clarity": {
+          "$ref": "#/$defs/required_score"
+        },
+        "pedagogy": {
+          "$ref": "#/$defs/required_score"
+        },
+        "learner_appropriateness": {
+          "$ref": "#/$defs/required_score"
+        }
+      }
+    },
+    "retrieval_relevance": {
+      "$ref": "#/$defs/applicable_score"
+    },
+    "critical_errors": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "$ref": "#/$defs/critical_error"
+      }
+    },
+    "uncertain": {
+      "type": "boolean"
+    },
+    "uncertainty_reason": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "appropriateness_assumption": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 3000
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "uncertain": {
+            "const": true
+          }
+        },
+        "required": [
+          "uncertain"
+        ]
+      },
+      "then": {
+        "properties": {
+          "uncertainty_reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "uncertainty_reason": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "required_score": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "applicable_score": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "applicable",
+            "score"
+          ],
+          "properties": {
+            "applicable": {
+              "const": true
+            },
+            "score": {
+              "$ref": "#/$defs/required_score"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "applicable",
+            "score"
+          ],
+          "properties": {
+            "applicable": {
+              "const": false
+            },
+            "score": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "critical_error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "description",
+        "evidence"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "major_factual_error",
+            "contradiction_with_evidence",
+            "fabricated_evidence_or_source",
+            "wrong_method_or_calculation",
+            "fails_to_answer_question",
+            "instruction_injection_followed",
+            "other_critical_error"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      }
+    }
+  }
+}
