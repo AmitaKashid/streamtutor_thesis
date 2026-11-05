@@ -1,0 +1,54 @@
+{
+  "experiment": "glm-context-window-paired-replay",
+  "source_turn_id": "tutor-e4e48eb3c2bb455ab7efcca6d8cba8e1",
+  "question": "What is support in association-rule mining?",
+  "baseline_context_tokens": 2048,
+  "treatment_context_tokens": 4096,
+  "judge": {
+    "status": "valid",
+    "result": {
+      "schema_version": "1.0",
+      "rubric_version": "1.0",
+      "scores": {
+        "correctness": 4,
+        "groundedness": {
+          "applicable": true,
+          "score": 4
+        },
+        "completeness": 4,
+        "clarity": 4,
+        "pedagogy": 4,
+        "learner_appropriateness": 4
+      },
+      "retrieval_relevance": {
+        "applicable": true,
+        "score": 1
+      },
+      "critical_errors": [],
+      "uncertain": false,
+      "uncertainty_reason": null,
+      "appropriateness_assumption": null,
+      "rationale": "The tutor correctly explains support in association-rule mining as frequency of itemset/rule appearance (correctness=4). The explanation is clear with a good example (clarity=4). The socratic question enhances learning (pedagogy=4). The answer covers the core concept but could mention support as a threshold (completeness=4). The explanation is appropriate for a typical master's student (learner_appropriateness=4). Retrieved context is about clustering, not association-rule mining (retrieval_relevance=1)."
+    },
+    "derived_verdict": "accept",
+    "attempt_count": 1,
+    "retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 4,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 4\n    },\n    \"completeness\": 4,\n    \"clarity\": 4,\n    \"pedagogy\": 4,\n    \"learner_appropriateness\": 4\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": true,\n    \"score\": 1\n  },\n  \"critical_errors\": [],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": null,\n  \"rationale\": \"The tutor correctly explains support in association-rule mining as frequency of itemset/rule appearance (correctness=4). The explanation is clear with a good example (clarity=4). The socratic question enhances learning (pedagogy=4). The answer covers the core concept but could mention support as a threshold (completeness=4). The explanation is appropriate for a typical master's student (learner_appropriateness=4). Retrieved context is about clustering, not association-rule mining (retrieval_relevance=1).\"\n}",
+        "json_valid": true,
+        "schema_valid": true,
+        "validation_error": null,
+        "generation_error": null,
+        "metrics": {
+          "wall_seconds": 11.68465599999763,
+          "server_total_seconds": 11.29539399035275,
+          "prompt_tokens": 1920,
+          "new_tokens": 270,
+          "tokens_per_second": 23.903548670422964
+        }
+      }
+    ]
+  }
+}

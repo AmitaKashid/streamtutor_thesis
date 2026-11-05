@@ -45,6 +45,9 @@ def build_llm(model_key: str) -> LlamaCppProvider:
         top_p = 0.95
         n_ctx = 4096
 
+    elif "glm" in k:
+        n_ctx = 4096
+
     return LlamaCppProvider(
         model_path=spec.gguf_path,
         chat_format=spec.chat_format,

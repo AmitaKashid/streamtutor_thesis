@@ -5,6 +5,7 @@ import argparse
 import queue
 import threading
 import time
+import uuid
 import copy
 import re
 from pathlib import Path
@@ -733,6 +734,7 @@ def run_llm_tts_pipeline(
     For interruption mode:
       interruption_text + last spoken chunks -> (RAG) -> prompt -> LLM -> TTS
     """
+    evaluation_turn_id = f"tutor-{uuid.uuid4().hex}"
     norm = transcript.lower().strip(" .!?")
     playback.reset_interrupt()
     playback.clear_interrupt_snapshot()
@@ -1027,6 +1029,7 @@ def run_llm_tts_pipeline(
         # Queue batch evaluation after playback status is known.
         if answer and judge is not None:
             task_id = judge.judge_and_log_async(
+                turn_id=evaluation_turn_id,
                 question=transcript,
                 answer=answer,
                 teaching_style=args.teaching_style,
@@ -1610,6 +1613,7 @@ def run_llm_tts_pipeline(
     # Queue evaluation after playback status has been captured.
     if final_answer and judge is not None:
         task_id = judge.judge_and_log_async(
+            turn_id=evaluation_turn_id,
             question=transcript,
             answer=final_answer,
             teaching_style=args.teaching_style,

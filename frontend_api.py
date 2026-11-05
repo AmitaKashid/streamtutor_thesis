@@ -181,10 +181,11 @@ def build_runtime_evaluator() -> LocalLLMJudge | None:
     )
 
     if not judge_provider.healthcheck():
-        raise RuntimeError(
-            f"Runtime judge is enabled but is not reachable at {JUDGE_SERVER_URL}. "
-            "Start the judge server and its SSH tunnel before frontend_api."
+        print(
+            f"[JUDGE WARNING] Judge is unavailable at {JUDGE_SERVER_URL}. "
+            "Runtime evaluation is disabled, but the tutor will continue."
         )
+        return None
 
     evaluator = LocalLLMJudge(
         judge_provider,

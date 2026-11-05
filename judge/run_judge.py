@@ -38,6 +38,10 @@ def run() -> None:
         enable_bertscore=True,
         bertscore_model="microsoft/deberta-large-mnli",
         bertscore_device="cpu",
+        model_id="glm4_32b_0414_q4",
+        backend="llama.cpp via RemoteHTTPProvider",
+        quantization="Q4_K_M",
+        hardware="NVIDIA A100 80 GB",
     )
 
     for index, sample in enumerate(items, 1):
@@ -53,6 +57,12 @@ def run() -> None:
             teaching_style=sample.get("teaching_style", "socratic"),
             context=sample.get("context", ""),
             retrieved_ids=sample.get("retrieved_ids", []),
+            learner_level=sample.get("learner_level"),
+            reference_answers=sample.get("reference_answers", []),
+            response_status=sample.get("response_status", "complete"),
+            retrieval_status=(
+                "provided" if sample.get("context", "").strip() else "not_provided"
+            ),
             metadata={
                 "evaluation_mode": "offline_gold_set",
                 "dataset_version": dataset.get("dataset_version"),
