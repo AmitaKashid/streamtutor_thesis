@@ -75,3 +75,8 @@ judge_outputs/
 # ── Word documents ────────────────────────────────────────────────────────────
 *.docx
 *.doc
+
+# Track Python model registry source files.
+# Keep downloaded model weights ignored.
+!llm/llmcli/models/
+!llm/llmcli/models/*.py
