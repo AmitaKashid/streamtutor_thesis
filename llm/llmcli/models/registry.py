@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+﻿from dataclasses import dataclass
 from typing import Any, Dict, Optional, Literal
 
 Backend = Literal["llamacpp", "hf"]
@@ -31,4 +31,4 @@ def get_model_spec(key: str) -> ModelSpec:
         raise KeyError(f"Unknown model key '{key}'. Known: {sorted(_REGISTRY)}")
     return _REGISTRY[key]
 
-from . import llama3_gguf, qwen_gguf, ministral_gguf, gemma_gguf, glm_gguf  # noqa
+from . import llama3_gguf, qwen_gguf, ministral_gguf, gemma_gguf, glm_gguf, fare_gguf  # noqa
