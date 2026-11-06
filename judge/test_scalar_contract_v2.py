@@ -15,8 +15,9 @@ class ScalarContractV2Tests(unittest.TestCase):
         )
 
         self.assertIsNone(error)
-        self.assertEqual(parsed["protocol_version"], "2.0")
+        self.assertEqual(parsed["protocol_version"], "2.1")
         self.assertEqual(parsed["score"], 5)
+        self.assertEqual(parsed["format_variant"], "prefixed_feedback")
         self.assertEqual(
             parsed["feedback"],
             "The answer is correct and clear.",
@@ -52,13 +53,31 @@ class ScalarContractV2Tests(unittest.TestCase):
         self.assertIsNone(parsed)
         self.assertEqual(error, "empty_output")
 
-    def test_rejects_missing_feedback_prefix(self):
+    def test_accepts_unprefixed_feedback(self):
         parsed, error = parse_scalar_output(
             "The answer is correct. [RESULT] 4"
         )
 
-        self.assertIsNone(parsed)
-        self.assertIn("must begin", error)
+        self.assertIsNone(error)
+        self.assertEqual(parsed["feedback"], "The answer is correct.")
+        self.assertEqual(parsed["score"], 4)
+        self.assertEqual(
+            parsed["format_variant"],
+            "unprefixed_feedback",
+        )
+
+    def test_accepts_observed_prometheus_serialization(self):
+        parsed, error = parse_scalar_output(
+            "The explanation is evidence based. Therefore, the score is 3. "
+            "[RESULT] 3"
+        )
+
+        self.assertIsNone(error)
+        self.assertEqual(parsed["score"], 3)
+        self.assertEqual(
+            parsed["format_variant"],
+            "unprefixed_feedback",
+        )
 
     def test_rejects_empty_feedback(self):
         parsed, error = parse_scalar_output(
@@ -90,7 +109,7 @@ class ScalarContractV2Tests(unittest.TestCase):
         )
 
         self.assertIsNone(parsed)
-        self.assertIn("expected exactly", error)
+        self.assertIn("expected non-empty feedback", error)
 
     def test_rejects_zero_score(self):
         parsed, error = parse_scalar_output(
@@ -98,7 +117,7 @@ class ScalarContractV2Tests(unittest.TestCase):
         )
 
         self.assertIsNone(parsed)
-        self.assertIn("expected exactly", error)
+        self.assertIn("expected non-empty feedback", error)
 
     def test_rejects_decimal_score(self):
         parsed, error = parse_scalar_output(
@@ -106,7 +125,7 @@ class ScalarContractV2Tests(unittest.TestCase):
         )
 
         self.assertIsNone(parsed)
-        self.assertIn("expected exactly", error)
+        self.assertIn("expected non-empty feedback", error)
 
     def test_rejects_text_after_result(self):
         parsed, error = parse_scalar_output(
@@ -114,7 +133,7 @@ class ScalarContractV2Tests(unittest.TestCase):
         )
 
         self.assertIsNone(parsed)
-        self.assertIn("expected exactly", error)
+        self.assertIn("expected non-empty feedback", error)
 
     def test_rejects_markdown_fence(self):
         parsed, error = parse_scalar_output(
@@ -122,7 +141,7 @@ class ScalarContractV2Tests(unittest.TestCase):
         )
 
         self.assertIsNone(parsed)
-        self.assertIn("must begin", error)
+        self.assertIn("Markdown fences", error)
 
     def test_retry_prompt_retains_error_without_expected_score(self):
         prompt = build_scalar_retry_prompt(

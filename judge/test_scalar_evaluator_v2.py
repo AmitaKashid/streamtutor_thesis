@@ -186,7 +186,7 @@ class ScalarEvaluatorV2Tests(unittest.TestCase):
             saved = json.loads(path.read_text(encoding="utf-8"))
 
             self.assertEqual(record["case_id"], "quality-001")
-            self.assertEqual(saved["protocol_version"], "2.0")
+            self.assertEqual(saved["protocol_version"], "2.1")
             self.assertEqual(
                 saved["judge_configuration"]["model_id"],
                 "test-model",

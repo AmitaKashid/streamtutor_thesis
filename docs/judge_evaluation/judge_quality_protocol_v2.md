@@ -178,3 +178,38 @@ The required output is:
 ```text
 Feedback: <concise evidence-based explanation>
 [RESULT] <integer from 1 to 5>
+```
+
+The text above is the canonical model-facing serialization request.
+
+### 9.1 Accepted serialization grammar (protocol 2.1)
+
+For parsing, the literal `Feedback:` prefix is optional because it carries no
+semantic information. A response is valid only when all of these conditions
+hold:
+
+1. it contains non-empty feedback;
+2. it contains exactly one `[RESULT]` marker;
+3. the marker is followed by one integer from 1 through 5;
+4. the score is the final response content;
+5. it contains no Markdown fence; and
+6. no score is inferred, clamped, repaired or supplied by the evaluator.
+
+The raw output is retained unchanged. Parsed records identify whether the
+model used `prefixed_feedback` or `unprefixed_feedback` serialization.
+
+## 10. Pre-evaluation Amendment Log
+
+### Amendment 2.1 — 2026-11-06
+
+An integration-only Prometheus probe, performed before comparative pilot
+evaluation and before human-agreement results were inspected, returned
+non-empty feedback and an explicit terminal `[RESULT] 3` marker but omitted
+the semantically redundant `Feedback:` prefix. Protocol 2.1 therefore accepts
+both prefixed and unprefixed feedback while retaining every substantive
+constraint on score extraction.
+
+The canonical prompt remains version 2.0 and continues to request the prefix.
+Historical protocol-2.0 records are not reclassified or overwritten. The
+amendment applies only to newly generated protocol-2.1 records and is applied
+identically to every candidate model.

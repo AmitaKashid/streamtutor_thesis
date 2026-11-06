@@ -14,6 +14,8 @@ from judge.scalar_contract_v2 import (
 )
 
 
+# Protocol 2.1 changes parser tolerance only. The canonical model-facing
+# prompt is unchanged, so its independent version correctly remains 2.0.
 PROMPT_VERSION = "2.0"
 
 DIMENSION_ANCHORS: dict[str, dict[int, str]] = {
