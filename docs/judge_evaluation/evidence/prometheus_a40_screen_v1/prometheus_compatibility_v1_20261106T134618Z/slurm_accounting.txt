@@ -1,4 +1,4 @@
 JobID           JobName      State ExitCode    Elapsed        NodeList 
 ------------ ---------- ---------- -------- ---------- --------------- 
-506935       llmtutor_+    RUNNING      0:0   00:09:28           gpu04 
-506935.batch      batch    RUNNING      0:0   00:09:28           gpu04 
+506935       llmtutor_+ CANCELLED+      0:0   00:09:47           gpu04 
+506935.batch      batch  CANCELLED     0:15   00:09:48           gpu04 
