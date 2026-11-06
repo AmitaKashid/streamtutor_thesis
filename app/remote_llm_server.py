@@ -52,6 +52,7 @@ def build_llm(model_key: str) -> LlamaCppProvider:
         model_path=spec.gguf_path,
         chat_format=spec.chat_format,
         chat_template_kwargs=spec.chat_template_kwargs,
+        response_protocol=spec.response_protocol,
         system_prompt=spec.system_prompt,
         n_ctx=n_ctx,
         n_threads=12,
@@ -85,6 +86,9 @@ async def generate(request: Request):
     return JSONResponse(
         {
             "text": res.text,
+            "raw_text": res.raw_text,
+            "response_protocol": res.response_protocol,
+            "protocol_error": res.protocol_error,
             "prompt_tokens": res.prompt_tokens,
             "new_tokens": res.new_tokens,
             "total_seconds": total_s,

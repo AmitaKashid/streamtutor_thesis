@@ -20,6 +20,7 @@ class ModelSpec:
 
     # shared
     system_prompt: Optional[str] = None
+    response_protocol: Optional[str] = None
 
 _REGISTRY: Dict[str, ModelSpec] = {}
 
