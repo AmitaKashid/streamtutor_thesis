@@ -11,6 +11,7 @@ set -euo pipefail
 
 MODEL="$1"
 PORT="$2"
+EXTRA_ARGS=("${@:3}")
 
 if [ -z "$MODEL" ] || [ -z "$PORT" ]; then
   echo "Usage: sbatch run_remote_model.sbatch <model> <port>"
@@ -41,6 +42,13 @@ HOSTNAME_SHORT=$(hostname)
 echo "$HOSTNAME_SHORT" > "$HOME/llmtutor/runtime/${MODEL}.host"
 echo "$PORT" > "$HOME/llmtutor/runtime/${MODEL}.port"
 echo "$SLURM_JOB_ID" > "$HOME/llmtutor/runtime/${MODEL}.jobid"
+if ((${#EXTRA_ARGS[@]})); then
+  printf 'Extra arguments:'
+  printf ' %q' "${EXTRA_ARGS[@]}"
+  printf '\n'
+else
+  echo "Extra arguments: none"
+fi
 
 echo "======================================"
 echo "Starting remote LLM server"
@@ -58,4 +66,5 @@ nvidia-smi
 python app/remote_llm_server.py \
   --model "$MODEL" \
   --host 0.0.0.0 \
-  --port "$PORT"
+  --port "$PORT" \
+  "${EXTRA_ARGS[@]}"
