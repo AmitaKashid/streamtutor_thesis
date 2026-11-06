@@ -1,0 +1,9 @@
+SHA256 hash of docs\judge_evaluation\evidence\fare_a40_smoke_v1\records.jsonl:
+f5f275d44559e7bb94d83e54727c4e98c5fc405a492e484a0fce4cb92b0f1be4
+CertUtil: -hashfile command completed successfully.
+SHA256 hash of docs\judge_evaluation\evidence\fare_a40_smoke_v1\report.json:
+6449ecb3126c8e8a7d880d5d3ad9b5e54427a199d9254a50c98148abb95f0f00
+CertUtil: -hashfile command completed successfully.
+SHA256 hash of docs\judge_evaluation\evidence\fare_a40_smoke_v1\schema_probe.jsonl:
+cc15d4cb0235c45cfe55c901ceb35f1bfce49091b6459f6664f5c01934f7a7df
+CertUtil: -hashfile command completed successfully.

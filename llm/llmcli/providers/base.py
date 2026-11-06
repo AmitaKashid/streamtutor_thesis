@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterator
+from typing import Iterator, Optional
 
 
 @dataclass
@@ -11,6 +11,9 @@ class GenerationResult:
     prompt_tokens: int
     new_tokens: int
     tokens_per_second: float
+    raw_text: Optional[str] = None
+    response_protocol: Optional[str] = None
+    protocol_error: Optional[str] = None
 
 
 class LLMProvider:

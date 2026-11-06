@@ -156,6 +156,84 @@ class JudgeContractV1Tests(unittest.TestCase):
                 "RuntimeError",
             )
 
+    def test_harmony_raw_and_decoded_outputs_are_both_retained(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = valid_result()
+            decoded = json.dumps(payload)
+            raw = "<|channel|>final<|message|>" + decoded
+            generation = SimpleNamespace(
+                text=decoded,
+                raw_text=raw,
+                response_protocol="harmony",
+                protocol_error=None,
+                total_seconds=0.25,
+                prompt_tokens=120,
+                new_tokens=40,
+                tokens_per_second=160.0,
+            )
+            judge = self.make_judge([], directory)
+            judge.llm = SimpleNamespace(
+                generate=lambda prompt: generation,
+            )
+
+            result = judge.judge_answer(
+                question="What is clustering?",
+                answer="Clustering groups similar observations.",
+                teaching_style="direct",
+                context="Clustering groups similar observations.",
+            )
+
+            attempt = result["attempts"][0]
+            self.assertEqual(result["status"], "valid")
+            self.assertEqual(attempt["raw_output"], raw)
+            self.assertEqual(attempt["decoded_output"], decoded)
+            self.assertEqual(attempt["response_protocol"], "harmony")
+            self.assertIsNone(attempt["protocol_error"])
+
+    def test_harmony_protocol_failure_is_retained_and_retried_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            raw_outputs = [
+                "missing final marker",
+                "still missing final marker",
+            ]
+            generations = [
+                SimpleNamespace(
+                    text="",
+                    raw_text=raw,
+                    response_protocol="harmony",
+                    protocol_error=(
+                        "ResponseProtocolError: Harmony response must contain "
+                        "exactly one final-channel marker; found 0."
+                    ),
+                    total_seconds=0.25,
+                    prompt_tokens=120,
+                    new_tokens=40,
+                    tokens_per_second=160.0,
+                )
+                for raw in raw_outputs
+            ]
+            judge = self.make_judge([], directory)
+            judge.llm = SimpleNamespace(
+                generate=lambda prompt: generations.pop(0),
+            )
+
+            result = judge.judge_answer(
+                question="Question",
+                answer="Answer",
+                teaching_style="direct",
+            )
+
+            self.assertEqual(result["status"], "invalid")
+            self.assertTrue(result["retry_used"])
+            self.assertEqual(result["attempt_count"], 2)
+            self.assertEqual(result["attempts"][0]["raw_output"], raw_outputs[0])
+            self.assertEqual(result["attempts"][1]["raw_output"], raw_outputs[1])
+            self.assertFalse(result["attempts"][0]["json_valid"])
+            self.assertIn(
+                "response_protocol_error",
+                result["attempts"][0]["validation_error"],
+            )
+
     def test_logging_keeps_provenance_raw_output_and_metrics(self):
         with tempfile.TemporaryDirectory() as directory:
             payload = valid_result(context_applicable=False)

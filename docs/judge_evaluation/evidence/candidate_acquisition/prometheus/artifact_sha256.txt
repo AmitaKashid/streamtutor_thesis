@@ -1,0 +1,3 @@
+SHA256 hash of models\prometheus-7b-v2.0.Q4_K_M.gguf:
+5bb7b0fa6b244a8cad8d2bb29d0f96422c43d3497fe1ab9ced7fd1ead03cc976
+CertUtil: -hashfile command completed successfully.

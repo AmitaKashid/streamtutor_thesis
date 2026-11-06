@@ -1,0 +1,5 @@
+deployment_repository: prometheus-eval/prometheus-7b-v2.0-GGUF
+source_checkpoint: prometheus-eval/prometheus-7b-v2.0
+revision: 1d1dbdec4c0a5b479b11642669d5ae6514137e96
+artifact: prometheus-7b-v2.0.Q4_K_M.gguf
+quantization: Q4_K_M

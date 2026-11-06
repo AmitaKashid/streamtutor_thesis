@@ -207,6 +207,16 @@ def main() -> int:
             )
 
     valid_count = sum(item["judge_status"] == "valid" for item in outcomes)
+    first_attempt_schema_valid_count = sum(
+        bool(item["attempts"])
+        and item["attempts"][0].get("schema_valid") is True
+        for item in outcomes
+    )
+    final_schema_valid_count = valid_count
+    hard_schema_gate_pass = (
+        first_attempt_schema_valid_count >= 19
+        and final_schema_valid_count == len(outcomes)
+    )
     expectation_count = sum(item["expectation_pass"] for item in outcomes)
     retry_count = sum(item["retry_used"] for item in outcomes)
     latencies = [
@@ -228,9 +238,21 @@ def main() -> int:
         },
         "summary": {
             "total_cases": len(outcomes),
-            "valid_json_cases": valid_count,
-            "valid_json_rate": valid_count / len(outcomes),
-            "day1_schema_gate_pass": valid_count >= 19,
+            "first_attempt_schema_valid_cases": (
+                first_attempt_schema_valid_count
+            ),
+            "first_attempt_schema_valid_rate": (
+                first_attempt_schema_valid_count / len(outcomes)
+            ),
+            "final_schema_valid_cases": final_schema_valid_count,
+            "final_schema_valid_rate": (
+                final_schema_valid_count / len(outcomes)
+            ),
+            "schema_gate_thresholds": {
+                "first_attempt_minimum": 19,
+                "final_after_retry_required": len(outcomes),
+            },
+            "hard_schema_gate_pass": hard_schema_gate_pass,
             "semantic_expectation_cases": expectation_count,
             "semantic_expectation_rate": expectation_count / len(outcomes),
             "retry_cases": retry_count,
@@ -253,7 +275,7 @@ def main() -> int:
     print(json.dumps(report["summary"], indent=2))
     print(f"Records: {records_path}")
     print(f"Report:  {report_path}")
-    return 0 if valid_count >= 19 else 1
+    return 0 if hard_schema_gate_pass else 1
 
 
 if __name__ == "__main__":

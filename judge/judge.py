@@ -310,6 +310,9 @@ class LocalLLMJudge:
                 {
                     "attempt": attempt_number,
                     "raw_output": None,
+                    "decoded_output": None,
+                    "response_protocol": None,
+                    "protocol_error": None,
                     "json_valid": False,
                     "schema_valid": False,
                     "validation_error": None,
@@ -326,7 +329,20 @@ class LocalLLMJudge:
         if isinstance(generation, str):
             raw_text = generation.strip()
         else:
-            raw_text = (getattr(generation, "text", "") or "").strip()
+            decoded_text = (getattr(generation, "text", "") or "").strip()
+            protocol_raw = getattr(generation, "raw_text", None)
+            response_protocol = getattr(generation, "response_protocol", None)
+            protocol_error = getattr(generation, "protocol_error", None)
+            raw_text = (
+                protocol_raw.strip()
+                if isinstance(protocol_raw, str)
+                else decoded_text
+            )
+
+        if isinstance(generation, str):
+            decoded_text = raw_text
+            response_protocol = None
+            protocol_error = None
 
         metrics = {
             "wall_seconds": wall_seconds,
@@ -339,8 +355,13 @@ class LocalLLMJudge:
                 None,
             ),
         }
-        parsed, parse_error = parse_exact_json_object(raw_text)
-        validation_error = parse_error
+        if protocol_error:
+            parsed = None
+            validation_error = f"response_protocol_error: {protocol_error}"
+        else:
+            parsed, parse_error = parse_exact_json_object(decoded_text)
+            validation_error = parse_error
+
         schema_valid = False
 
         if parsed is not None:
@@ -360,6 +381,9 @@ class LocalLLMJudge:
         attempt = {
             "attempt": attempt_number,
             "raw_output": raw_text,
+            "decoded_output": decoded_text if response_protocol else None,
+            "response_protocol": response_protocol,
+            "protocol_error": protocol_error,
             "json_valid": parsed is not None,
             "schema_valid": schema_valid,
             "validation_error": validation_error,

@@ -7,6 +7,10 @@ import time
 from llama_cpp import Llama, llama_chat_format
 
 from .base import LLMProvider, GenerationResult
+from .response_protocols import (
+    ResponseProtocolError,
+    decode_response_protocol,
+)
 from ..common.latency import Timer
 
 
@@ -29,12 +33,14 @@ class LlamaCppProvider(LLMProvider):
     verbose: bool = True
     flash_attn: bool = True
     offload_kqv: bool = True
+    response_protocol: Optional[str] = None
 
     def __post_init__(self) -> None:
         print("\n[LLM LOAD CONFIG]")
         print(f"  model_path      : {self.model_path}")
         print(f"  chat_format     : {self.chat_format}")
         print(f"  template_kwargs : {self.chat_template_kwargs}")
+        print(f"  response_protocol: {self.response_protocol}")
         print(f"  n_ctx           : {self.n_ctx}")
         print(f"  n_threads       : {self.n_threads}")
         print(f"  n_threads_batch : {self.n_threads_batch}")
@@ -99,7 +105,15 @@ class LlamaCppProvider(LLMProvider):
                 stream=False,
             )
 
-        text = out["choices"][0]["message"]["content"].strip()
+        raw_text = out["choices"][0]["message"]["content"].strip()
+        protocol_error = None
+        try:
+            text = decode_response_protocol(raw_text, self.response_protocol)
+        except ResponseProtocolError as exc:
+            # Return the original response and a structured decoding error so
+            # the judge can retain evidence and apply its one-retry policy.
+            text = ""
+            protocol_error = f"{type(exc).__name__}: {exc}"
 
         usage = out.get("usage", {}) or {}
         prompt_tokens = int(usage.get("prompt_tokens", 0))
@@ -120,6 +134,9 @@ class LlamaCppProvider(LLMProvider):
             prompt_tokens=prompt_tokens,
             new_tokens=new_tokens,
             tokens_per_second=tps,
+            raw_text=raw_text if self.response_protocol else None,
+            response_protocol=self.response_protocol,
+            protocol_error=protocol_error,
         )
 
     def stream(self, user_text: str) -> Iterator[str]:

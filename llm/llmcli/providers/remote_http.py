@@ -58,6 +58,15 @@ class RemoteHTTPProvider(LLMProvider):
         new_tokens = int(data.get("new_tokens", 0))
         text = (data.get("text") or "").strip()
 
+        raw_value = data.get("raw_text")
+        raw_text = str(raw_value) if raw_value is not None else None
+        protocol_value = data.get("response_protocol")
+        response_protocol = (
+            str(protocol_value) if protocol_value is not None else None
+        )
+        error_value = data.get("protocol_error")
+        protocol_error = str(error_value) if error_value is not None else None
+
         tps = (new_tokens / total_seconds) if total_seconds > 0 and new_tokens > 0 else 0.0
 
         return GenerationResult(
@@ -66,6 +75,9 @@ class RemoteHTTPProvider(LLMProvider):
             prompt_tokens=prompt_tokens,
             new_tokens=new_tokens,
             tokens_per_second=tps,
+            raw_text=raw_text,
+            response_protocol=response_protocol,
+            protocol_error=protocol_error,
         )
 
     def stream(self, user_text: str) -> Iterator[str]:

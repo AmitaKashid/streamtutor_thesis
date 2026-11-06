@@ -17,6 +17,7 @@ register(
 
         # Use the chat template embedded in the GGUF.
         chat_format=None,
+        response_protocol="harmony",
 
         system_prompt=(
             "You are a strict educational answer evaluator. "
