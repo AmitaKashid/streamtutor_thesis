@@ -1,0 +1,5 @@
+deployment_repository: mradermacher/CompassJudger-2-7B-Instruct-GGUF
+source_checkpoint: opencompass/CompassJudger-2-7B-Instruct
+revision: 4f6420273fafdae742814b86d4693a2206e47acc
+artifact: CompassJudger-2-7B-Instruct.Q4_K_M.gguf
+quantization: Q4_K_M

@@ -1,0 +1,3 @@
+SHA256 hash of models\CompassJudger-2-7B-Instruct.Q4_K_M.gguf:
+d35cda6bc0964316ca6351862ebce5d49d08e07798045ac7dddaa0d846e457f9
+CertUtil: -hashfile command completed successfully.
