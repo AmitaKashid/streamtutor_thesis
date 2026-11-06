@@ -1,0 +1,9 @@
+{
+  "samples": 226,
+  "gpu": "NVIDIA A40",
+  "total_mib": 46068.0,
+  "minimum_used_mib": 5016.0,
+  "peak_used_mib": 5018.0,
+  "minimum_free_mib": 40384.0,
+  "peak_utilization_percent": 89.0
+}

@@ -1,0 +1,56 @@
+{
+  "experiment": "compass-a40-full-schema-probe",
+  "model_id": "compassjudger_2_7b_q4",
+  "quantization": "Q4_K_M",
+  "hardware": "NVIDIA A40 48 GB",
+  "result": {
+    "status": "valid",
+    "result": {
+      "schema_version": "1.0",
+      "rubric_version": "1.0",
+      "scores": {
+        "correctness": 4,
+        "groundedness": {
+          "applicable": true,
+          "score": 4
+        },
+        "completeness": 4,
+        "clarity": 4,
+        "pedagogy": 4,
+        "learner_appropriateness": 4
+      },
+      "retrieval_relevance": {
+        "applicable": true,
+        "score": 4
+      },
+      "critical_errors": [],
+      "uncertain": false,
+      "uncertainty_reason": null,
+      "appropriateness_assumption": null,
+      "rationale": "The tutor's answer is concise and accurate, providing a clear definition of clustering in data mining. The definition aligns well with the retrieved context and is appropriate for a master's-level student in Data and Knowledge Engineering. The answer is complete and clear, with no significant issues or omissions."
+    },
+    "derived_verdict": "accept",
+    "attempt_count": 1,
+    "retry_used": false,
+    "attempts": [
+      {
+        "attempt": 1,
+        "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 4,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 4\n    },\n    \"completeness\": 4,\n    \"clarity\": 4,\n    \"pedagogy\": 4,\n    \"learner_appropriateness\": 4\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": true,\n    \"score\": 4\n  },\n  \"critical_errors\": [],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": null,\n  \"rationale\": \"The tutor's answer is concise and accurate, providing a clear definition of clustering in data mining. The definition aligns well with the retrieved context and is appropriate for a master's-level student in Data and Knowledge Engineering. The answer is complete and clear, with no significant issues or omissions.\"\n}",
+        "decoded_output": null,
+        "response_protocol": null,
+        "protocol_error": null,
+        "json_valid": true,
+        "schema_valid": true,
+        "validation_error": null,
+        "generation_error": null,
+        "metrics": {
+          "wall_seconds": 2.7888020999962464,
+          "server_total_seconds": 2.7561286110430956,
+          "prompt_tokens": 1626,
+          "new_tokens": 218,
+          "tokens_per_second": 79.09645403575519
+        }
+      }
+    ]
+  }
+}
