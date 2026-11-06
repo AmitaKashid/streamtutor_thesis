@@ -22,7 +22,15 @@ app = FastAPI(title="Remote LLM Server")
 LLM = None
 
 
-def build_llm(model_key: str) -> LlamaCppProvider:
+def build_llm(
+    model_key: str,
+    *,
+    n_ctx_override: int | None = None,
+    max_new_tokens_override: int | None = None,
+    temperature_override: float | None = None,
+    top_p_override: float | None = None,
+    disable_system_prompt: bool = False,
+) -> LlamaCppProvider:
     spec = get_model_spec(model_key)
 
     k = model_key.lower()
@@ -30,6 +38,7 @@ def build_llm(model_key: str) -> LlamaCppProvider:
     temp = 0.2
     top_p = 0.9
     n_ctx = 2048
+    max_new_tokens = 360
 
     if "qwen" in k:
         temp = 0.6
@@ -57,12 +66,42 @@ def build_llm(model_key: str) -> LlamaCppProvider:
     elif "glm" in k:
         n_ctx = 4096
 
+    if n_ctx_override is not None:
+        if n_ctx_override <= 0:
+            raise ValueError("n_ctx_override must be positive")
+        n_ctx = n_ctx_override
+
+    if max_new_tokens_override is not None:
+        if max_new_tokens_override <= 0:
+            raise ValueError(
+                "max_new_tokens_override must be positive"
+            )
+        max_new_tokens = max_new_tokens_override
+
+    if temperature_override is not None:
+        if temperature_override < 0:
+            raise ValueError(
+                "temperature_override must be non-negative"
+            )
+        temp = temperature_override
+
+    if top_p_override is not None:
+        if not 0 < top_p_override <= 1:
+            raise ValueError(
+                "top_p_override must be greater than 0 and at most 1"
+            )
+        top_p = top_p_override
+
+    system_prompt = (
+        None if disable_system_prompt else spec.system_prompt
+    )
+
     return LlamaCppProvider(
         model_path=spec.gguf_path,
         chat_format=spec.chat_format,
         chat_template_kwargs=spec.chat_template_kwargs,
         response_protocol=spec.response_protocol,
-        system_prompt=spec.system_prompt,
+        system_prompt=system_prompt,
         n_ctx=n_ctx,
         n_threads=12,
         n_gpu_layers=-1,
@@ -70,7 +109,7 @@ def build_llm(model_key: str) -> LlamaCppProvider:
         n_ubatch=512,
         flash_attn=True,
         offload_kqv=True,
-        max_new_tokens=360,
+        max_new_tokens=max_new_tokens,
         temperature=temp,
         top_p=top_p,
         seed=0,
@@ -128,10 +167,49 @@ def main():
     p.add_argument("--model", required=True)
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
+    p.add_argument(
+        "--n-ctx",
+        type=int,
+        default=None,
+        help="Optional runtime context-size override",
+    )
+    p.add_argument(
+        "--max-new-tokens",
+        type=int,
+        default=None,
+        help="Optional maximum generation-length override",
+    )
+    p.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help="Optional generation-temperature override",
+    )
+    p.add_argument(
+        "--top-p",
+        type=float,
+        default=None,
+        help="Optional nucleus-sampling override",
+    )
+    p.add_argument(
+        "--disable-system-prompt",
+        action="store_true",
+        help=(
+            "Disable the model registry system prompt so the complete "
+            "experimental instructions can be supplied in the user prompt"
+        ),
+    )
     args = p.parse_args()
 
     print("[SERVER] Loading model...")
-    LLM = build_llm(args.model)
+    LLM = build_llm(
+        args.model,
+        n_ctx_override=args.n_ctx,
+        max_new_tokens_override=args.max_new_tokens,
+        temperature_override=args.temperature,
+        top_p_override=args.top_p,
+        disable_system_prompt=args.disable_system_prompt,
+    )
     print("[SERVER] Model loaded.")
 
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
