@@ -1,0 +1,17 @@
+candidate_key=prometheus_7b_v2_q4
+source_checkpoint=prometheus-eval/prometheus-7b-v2.0
+deployment_repository=prometheus-eval/prometheus-7b-v2.0-GGUF
+repository_revision=1d1dbdec4c0a5b479b11642669d5ae6514137e96
+artifact=prometheus-7b-v2.0.Q4_K_M.gguf
+artifact_sha256=5bb7b0fa6b244a8cad8d2bb29d0f96422c43d3497fe1ab9ced7fd1ead03cc976
+quantization=Q4_K_M
+backend=llama-cpp-python-0.3.20
+git_commit=3d33ca9
+screening_hardware=NVIDIA A40 48GB
+target_hardware=NVIDIA A30 24GB
+context_tokens=4096
+max_new_tokens=360
+temperature=0.0
+top_p=1.0
+seed=0
+port=18118

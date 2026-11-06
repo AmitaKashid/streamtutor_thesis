@@ -45,6 +45,15 @@ def build_llm(model_key: str) -> LlamaCppProvider:
         top_p = 0.95
         n_ctx = 4096
 
+    elif k in {
+        "compassjudger_2_7b_q4",
+        "prometheus_7b_v2_q4",
+    }:
+        # Frozen judge-selection configuration.
+        temp = 0.0
+        top_p = 1.0
+        n_ctx = 4096
+
     elif "glm" in k:
         n_ctx = 4096
 

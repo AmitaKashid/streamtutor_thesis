@@ -1,0 +1,4 @@
+srun: forcing job termination
+srun: Job step aborted: Waiting up to 32 seconds for job step to finish.
+slurmstepd: error: *** STEP 506931.1 ON gpu04 CANCELLED AT 2026-11-06T14:40:33 ***
+srun: error: gpu04: task 0: Killed

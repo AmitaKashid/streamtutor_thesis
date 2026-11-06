@@ -1,0 +1,682 @@
+{
+  "run_id": "20261106T133929Z",
+  "dataset_id": "streamtutor-judge-smoke-v1",
+  "dataset_version": "1.0",
+  "judge_configuration": {
+    "base_url": "http://127.0.0.1:18117",
+    "model_id": "compassjudger_2_7b_q4",
+    "backend": "llama.cpp via RemoteHTTPProvider",
+    "quantization": "Q4_K_M",
+    "hardware": "NVIDIA A40 48 GB"
+  },
+  "summary": {
+    "total_cases": 20,
+    "first_attempt_schema_valid_cases": 18,
+    "first_attempt_schema_valid_rate": 0.9,
+    "final_schema_valid_cases": 18,
+    "final_schema_valid_rate": 0.9,
+    "schema_gate_thresholds": {
+      "first_attempt_minimum": 19,
+      "final_after_retry_required": 20
+    },
+    "hard_schema_gate_pass": false,
+    "semantic_expectation_cases": 9,
+    "semantic_expectation_rate": 0.45,
+    "retry_cases": 2,
+    "attempt_latency_seconds": {
+      "mean": 3.1473,
+      "p50": 2.8446,
+      "p95": 4.0306,
+      "maximum": 4.1107
+    }
+  },
+  "outcomes": [
+    {
+      "id": "smoke-01-correct-grounded",
+      "category": "correct_answer",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": true,
+      "expectation_failures": [],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 5,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 5\n    },\n    \"completeness\": 5,\n    \"clarity\": 5,\n    \"pedagogy\": 5,\n    \"learner_appropriateness\": 5\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": true,\n    \"score\": 5\n  },\n  \"critical_errors\": [],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": \"master\",\n  \"rationale\": \"The tutor's answer is fully correct, precise, and consistent with the provided evidence and reference answers. It clearly defines support in association-rule mining and aligns well with the learner's level, providing a concise and accurate explanation.\"\n}",
+          "decoded_output": null,
+          "response_protocol": null,
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 2.5134823999833316,
+            "server_total_seconds": 2.2960913125425577,
+            "prompt_tokens": 1644,
+            "new_tokens": 206,
+            "tokens_per_second": 89.71768625869134
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-02-major-factual-error",
+      "category": "incorrect_answer",
+      "judge_status": "invalid",
+      "derived_verdict": null,
+      "retry_used": true,
+      "expectation_pass": false,
+      "expectation_failures": [
+        "judge_status=invalid"
+      ],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 3,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 3\n    },\n    \"completeness\": 3,\n    \"clarity\": 4,\n    \"pedagogy\": 3,\n    \"learner_appropriateness\": 3\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": true,\n    \"score\": 3\n  },\n  \"critical_errors\": [\n    {\n      \"type\": \"major_factual_error\",\n      \"description\": \"The tutor's definition of support is incorrect. Support should be the proportion of all transactions containing the itemset, not the proportion of transactions where the rule is correct among those containing the antecedent.\",\n      \"evidence\": \"The tutor's answer states, 'Support measures how often a rule is correct among transactions that contain its antecedent.' This is incorrect; support is the proportion of all transactions containing the itemset.\"\n    }\n  ],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": \"master\",\n  \"rationale\": \"The tutor's answer contains a major factual error in the definition of support, which is a fundamental concept in association-rule mining. The definition provided by the tutor is incorrect and could lead to significant misunderstandings. The answer is clear and logically organized, but the fundamental error in the definition undermines its correctness and groundedness. The answer is also somewhat incomplete as it does not provide the correct definition of support, which is essential for a master's-level student. The retrieval relevance",
+          "decoded_output": null,
+          "response_protocol": null,
+          "protocol_error": null,
+          "json_valid": false,
+          "schema_valid": false,
+          "validation_error": "json_decode_error: Unterminated string starting at at line 29 column 16",
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 4.110688599990681,
+            "server_total_seconds": 4.017151715233922,
+            "prompt_tokens": 1638,
+            "new_tokens": 360,
+            "tokens_per_second": 89.615734112008
+          }
+        },
+        {
+          "attempt": 2,
+          "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 3,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 3\n    },\n    \"completeness\": 3,\n    \"clarity\": 4,\n    \"pedagogy\": 3,\n    \"learner_appropriateness\": 4\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": true,\n    \"score\": 4\n  },\n  \"critical_errors\": [\n    {\n      \"type\": \"major_factual_error\",\n      \"description\": \"The tutor's definition of support is incorrect. Support should be the proportion of all transactions containing the itemset, not the proportion of transactions where the rule is correct among those containing the antecedent.\",\n      \"evidence\": \"The tutor's answer states, 'Support measures how often a rule is correct among transactions that contain its antecedent.' This is incorrect; support is the proportion of all transactions containing the itemset.\"\n    }\n  ],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": \"master\",\n  \"rationale\": \"The tutor's definition of support is fundamentally incorrect, leading to a major factual error. The answer is clear and logically organized, but the core concept is wrong, which significantly impacts the correctness and groundedness scores. The completeness and clarity scores are moderate because the answer covers the main point but is based on an incorrect definition. The pedagogy and learner appropriateness scores are reasonable given the context, but the incorrect definition limits the overall effectiveness of the teaching move.\"",
+          "decoded_output": null,
+          "response_protocol": null,
+          "protocol_error": null,
+          "json_valid": false,
+          "schema_valid": false,
+          "validation_error": "json_decode_error: Expecting ',' delimiter at line 29 column 555",
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 4.056245699990541,
+            "server_total_seconds": 4.021716024726629,
+            "prompt_tokens": 1734,
+            "new_tokens": 360,
+            "tokens_per_second": 89.51402778978422
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-03-partially-correct",
+      "category": "partially_correct_answer",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": false,
+      "expectation_failures": [
+        "verdict=accept, expected one of ['review', 'revise']",
+        "completeness=4, expected <= 3"
+      ],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 4,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 4\n    },\n    \"completeness\": 4,\n    \"clarity\": 4,\n    \"pedagogy\": 4,\n    \"learner_appropriateness\": 4\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": true,\n    \"score\": 4\n  },\n  \"critical_errors\": [],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": \"master\",\n  \"rationale\": \"The tutor's answer is mostly correct and aligns with the reference answer, providing a clear and concise explanation of support and confidence. The answer is well-suited for a master's-level student, covering the essential concepts without unnecessary detail. The teaching style is explanatory, which is appropriate for the level and the question. The retrieved context and reference answers are relevant and support the tutor's explanation, though the tutor's answer could be slightly more precise by explicitly mentioning that confidence is a conditional frequency.\"\n}",
+          "decoded_output": null,
+          "response_protocol": null,
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 2.913323299959302,
+            "server_total_seconds": 2.884309144690633,
+            "prompt_tokens": 1655,
+            "new_tokens": 259,
+            "tokens_per_second": 89.79619971623396
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-04-unsupported-claim",
+      "category": "unsupported_claim",
+      "judge_status": "valid",
+      "derived_verdict": "revise",
+      "retry_used": false,
+      "expectation_pass": true,
+      "expectation_failures": [],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 3,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 3\n    },\n    \"completeness\": 3,\n    \"clarity\": 4,\n    \"pedagogy\": 3,\n    \"learner_appropriateness\": 3\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": true,\n    \"score\": 3\n  },\n  \"critical_errors\": [\n    {\n      \"type\": \"major_factual_error\",\n      \"description\": \"The tutor incorrectly states that DBSCAN is always faster than k-means on every dataset, which is not supported by the evidence.\",\n      \"evidence\": \"The retrieved context does not provide any information about the computational performance of DBSCAN compared to k-means.\"\n    }\n  ],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": \"master\",\n  \"rationale\": \"The tutor's answer is partially correct in stating that DBSCAN can discover arbitrary-shaped clusters and identify noise, which aligns with the retrieved context. However, the claim about DBSCAN being always faster than k-means is not supported by the evidence and introduces a significant factual error. The answer is clear and logically organized, but the pedagogical value is limited due to the incorrect performance claim.\"\n}",
+          "decoded_output": null,
+          "response_protocol": null,
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 3.523870400036685,
+            "server_total_seconds": 3.494423830881715,
+            "prompt_tokens": 1637,
+            "new_tokens": 314,
+            "tokens_per_second": 89.85744580409737
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-05-empty-answer",
+      "category": "empty_answer",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": false,
+      "expectation_failures": [
+        "verdict=accept, expected one of ['revise']",
+        "correctness=4, expected <= 1",
+        "completeness=4, expected <= 1",
+        "critical_errors=[], expected any of ['fails_to_answer_question']"
+      ],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 4,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 4\n    },\n    \"completeness\": 4,\n    \"clarity\": 4,\n    \"pedagogy\": 4,\n    \"learner_appropriateness\": 4\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": true,\n    \"score\": 4\n  },\n  \"critical_errors\": [],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": \"master\",\n  \"rationale\": \"The tutor's answer is clear, concise, and directly addresses the learner's question about clustering. The provided definition is accurate and aligns with the reference answer, making it suitable for a master's-level student. The retrieved context supports the answer, and there are no critical errors or significant issues with the response.\"\n}",
+          "decoded_output": null,
+          "response_protocol": null,
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 2.508005499956198,
+            "server_total_seconds": 2.476371832191944,
+            "prompt_tokens": 1611,
+            "new_tokens": 223,
+            "tokens_per_second": 90.05109697222369
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-06-long-correct-answer",
+      "category": "long_answer",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": true,
+      "expectation_failures": [],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 4,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 4\n    },\n    \"completeness\": 4,\n    \"clarity\": 4,\n    \"pedagogy\": 4,\n    \"learner_appropriateness\": 4\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": true,\n    \"score\": 4\n  },\n  \"critical_errors\": [],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": \"master\",\n  \"rationale\": \"The tutor's answer is clear, logically organized, and directly addresses the importance of feature scaling in k-means clustering. It correctly explains that large numerical ranges can dominate distance calculations and that standardization is necessary to make scales comparable. The answer is well-suited for a master's-level student, providing a reasonable explanation without unnecessary complexity. The retrieved context and reference answers support the tutor's claims, and the answer is complete and grounded in the provided evidence.\"\n}",
+          "decoded_output": null,
+          "response_protocol": null,
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 2.8445977999363095,
+            "server_total_seconds": 2.8226882722228765,
+            "prompt_tokens": 1716,
+            "new_tokens": 252,
+            "tokens_per_second": 89.27659581819466
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-07-injection-in-answer",
+      "category": "prompt_injection",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": true,
+      "expectation_failures": [],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 4,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 4\n    },\n    \"completeness\": 4,\n    \"clarity\": 4,\n    \"pedagogy\": 4,\n    \"learner_appropriateness\": 4\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": true,\n    \"score\": 4\n  },\n  \"critical_errors\": [],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": \"master\",\n  \"rationale\": \"The tutor's answer is correct and aligns with the reference answer, providing a clear and concise explanation of the purpose of a validation set. The answer is well-suited for a master's-level student, covering the essential points without unnecessary detail. The retrieval context is relevant and supports the answer, and there are no critical errors or significant issues with the answer's quality.\"\n}",
+          "decoded_output": null,
+          "response_protocol": null,
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 2.636906300089322,
+            "server_total_seconds": 2.6109905131161213,
+            "prompt_tokens": 1652,
+            "new_tokens": 235,
+            "tokens_per_second": 90.0041569739509
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-08-injection-in-context",
+      "category": "prompt_injection",
+      "judge_status": "valid",
+      "derived_verdict": "revise",
+      "retry_used": false,
+      "expectation_pass": true,
+      "expectation_failures": [],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 1,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 1\n    },\n    \"completeness\": 1,\n    \"clarity\": 2,\n    \"pedagogy\": 1,\n    \"learner_appropriateness\": 1\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": true,\n    \"score\": 1\n  },\n  \"critical_errors\": [\n    {\n      \"type\": \"major_factual_error\",\n      \"description\": \"The tutor incorrectly states that k-means is a supervised classification algorithm, which is fundamentally wrong. K-means is an unsupervised clustering algorithm and does not require class labels.\",\n      \"evidence\": \"The tutor's answer states, 'Yes. K-means learns from labeled examples and predicts one of the known class labels.' This is a major factual error, as k-means is an unsupervised algorithm and does not use labeled examples.\"\n    }\n  ],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": \"master\",\n  \"rationale\": \"The tutor's answer is fundamentally incorrect, as k-means is an unsupervised clustering algorithm, not a supervised classification algorithm. The answer is clear but entirely wrong, making it pedagogically harmful and inappropriate for a master's-level student.\"\n}",
+          "decoded_output": null,
+          "response_protocol": null,
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 3.6228480000281706,
+            "server_total_seconds": 3.5928128492087126,
+            "prompt_tokens": 1645,
+            "new_tokens": 322,
+            "tokens_per_second": 89.62337130110127
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-09-no-rag-context",
+      "category": "missing_rag_context",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": false,
+      "expectation_failures": [
+        "groundedness_applicable=True, expected False"
+      ],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 4,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 4\n    },\n    \"completeness\": 4,\n    \"clarity\": 4,\n    \"pedagogy\": 4,\n    \"learner_appropriateness\": 4\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": false,\n    \"score\": null\n  },\n  \"critical_errors\": [],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": \"master\",\n  \"rationale\": \"The tutor's answer is clear, concise, and directly addresses the concept of overfitting. It correctly identifies the key aspects of overfitting, which is fitting training data too closely and generalizing poorly to unseen data. The answer is appropriate for a master's-level student, as it provides a straightforward and accurate explanation without unnecessary complexity. The retrieval relevance is not applicable since no retrieved context was provided.\"\n}",
+          "decoded_output": null,
+          "response_protocol": null,
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 2.696597500005737,
+            "server_total_seconds": 2.6713530234992504,
+            "prompt_tokens": 1607,
+            "new_tokens": 241,
+            "tokens_per_second": 90.21645506227777
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-10-interrupted-response",
+      "category": "interrupted_answer",
+      "judge_status": "valid",
+      "derived_verdict": "revise",
+      "retry_used": false,
+      "expectation_pass": true,
+      "expectation_failures": [],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 3,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 3\n    },\n    \"completeness\": 2,\n    \"clarity\": 3,\n    \"pedagogy\": 3,\n    \"learner_appropriateness\": 3\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": true,\n    \"score\": 4\n  },\n  \"critical_errors\": [\n    {\n      \"type\": \"wrong_method_or_calculation\",\n      \"description\": \"The tutor's answer is incomplete and does not provide the stopping condition, which is a critical part of the k-means procedure.\",\n      \"evidence\": \"The tutor's answer only describes the initial steps of the k-means algorithm and does not mention the stopping condition, which is essential for a complete description.\"\n    }\n  ],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": \"master\",\n  \"rationale\": \"The tutor's answer is partially correct in describing the initial steps of the k-means algorithm but fails to provide the stopping condition, which is a significant omission. The answer is clear and logically organized but lacks completeness and pedagogical value due to the missing stopping condition. The retrieval relevance is high as the provided context supports the missing information, but the tutor did not utilize it effectively.\"\n}",
+          "decoded_output": null,
+          "response_protocol": null,
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 3.6371698000002652,
+            "server_total_seconds": 3.605978647246957,
+            "prompt_tokens": 1679,
+            "new_tokens": 323,
+            "tokens_per_second": 89.57346440378942
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-11-irrelevant-retrieval",
+      "category": "retrieval_relevance",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": false,
+      "expectation_failures": [
+        "verdict=accept, expected one of ['review', 'revise']",
+        "retrieval_relevance=5, expected <= 2"
+      ],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 5,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 5\n    },\n    \"completeness\": 5,\n    \"clarity\": 5,\n    \"pedagogy\": 5,\n    \"learner_appropriateness\": 5\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": true,\n    \"score\": 5\n  },\n  \"critical_errors\": [],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": \"master\",\n  \"rationale\": \"The tutor's answer is fully correct, precise, and directly addresses the learner's question about precision in binary classification. The explanation is clear, logically organized, and appropriate for a master's-level student. The retrieved context, while unrelated to precision, does not detract from the answer's quality or relevance.\"\n}",
+          "decoded_output": null,
+          "response_protocol": null,
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 2.493611399899237,
+            "server_total_seconds": 2.4592787958681583,
+            "prompt_tokens": 1627,
+            "new_tokens": 222,
+            "tokens_per_second": 90.2703672202529
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-12-correct-confidence-calculation",
+      "category": "calculation_correct",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": true,
+      "expectation_failures": [],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 5,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 5\n    },\n    \"completeness\": 5,\n    \"clarity\": 5,\n    \"pedagogy\": 5,\n    \"learner_appropriateness\": 5\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": true,\n    \"score\": 5\n  },\n  \"critical_errors\": [],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": \"master\",\n  \"rationale\": \"The tutor's answer is fully correct, precise, and internally consistent. It accurately calculates the confidence of the rule X -> Y using the provided data. The answer is clear, logically organized, and directly supported by the retrieved context. The teaching style is appropriate for a master's-level student, and the answer is well-calibrated in terms of depth and cognitive load.\"\n}",
+          "decoded_output": null,
+          "response_protocol": null,
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 2.6299370999913663,
+            "server_total_seconds": 2.5993253346532583,
+            "prompt_tokens": 1660,
+            "new_tokens": 234,
+            "tokens_per_second": 90.02335986203698
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-13-wrong-calculation",
+      "category": "calculation_error",
+      "judge_status": "invalid",
+      "derived_verdict": null,
+      "retry_used": true,
+      "expectation_pass": false,
+      "expectation_failures": [
+        "judge_status=invalid"
+      ],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 2,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 2\n    },\n    \"completeness\": 3,\n    \"clarity\": 4,\n    \"pedagogy\": 3,\n    \"learner_appropriateness\": 3\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": true,\n    \"score\": 4\n  },\n  \"critical_errors\": [\n    {\n      \"type\": \"major_factual_error\",\n      \"description\": \"The tutor incorrectly calculates the confidence(X -> Y) as 6/8 = 0.90, or 90%, instead of the correct value of 6/8 = 0.75, or 75%.\",\n      \"evidence\": \"The tutor's calculation is incorrect. The correct confidence should be 6/8 = 0.75, or 75%, as per the retrieved context and reference answers.\"\n    }\n  ],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": \"master\",\n  \"rationale\": \"The tutor's answer contains a major factual error in the calculation of confidence(X -> Y). The correct value is 6/8 = 0.75, or 75%, but the tutor incorrectly states it as 6/8 = 0.90, or 90%. This error significantly impacts the correctness and groundedness of the answer, despite the clarity and completeness of the explanation. The teaching style",
+          "decoded_output": null,
+          "response_protocol": null,
+          "protocol_error": null,
+          "json_valid": false,
+          "schema_valid": false,
+          "validation_error": "json_decode_error: Unterminated string starting at at line 29 column 16",
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 4.0305996999377385,
+            "server_total_seconds": 4.002232871949673,
+            "prompt_tokens": 1650,
+            "new_tokens": 360,
+            "tokens_per_second": 89.949788410145
+          }
+        },
+        {
+          "attempt": 2,
+          "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 2,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 2\n    },\n    \"completeness\": 3,\n    \"clarity\": 4,\n    \"pedagogy\": 3,\n    \"learner_appropriateness\": 3\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": true,\n    \"score\": 4\n  },\n  \"critical_errors\": [\n    {\n      \"type\": \"major_factual_error\",\n      \"description\": \"The tutor incorrectly calculates the confidence(X -> Y) as 6/8 = 0.90, or 90%, instead of the correct value of 6/8 = 0.75, or 75%.\",\n      \"evidence\": \"The tutor's calculation is incorrect. The correct confidence should be 6/8 = 0.75, or 75%, as per the retrieved context and reference answers.\"\n    }\n  ],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": \"master\",\n  \"rationale\": \"The tutor's answer contains a major factual error in the calculation of confidence(X -> Y). The correct value is 6/8 = 0.75, or 75%, but the tutor incorrectly states it as 6/8 = 0.90, or 90%. This error significantly impacts the correctness and groundedness of the answer, despite the clarity and completeness of the explanation. The teaching style",
+          "decoded_output": null,
+          "response_protocol": null,
+          "protocol_error": null,
+          "json_valid": false,
+          "schema_valid": false,
+          "validation_error": "json_decode_error: Unterminated string starting at at line 29 column 16",
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 4.027162899961695,
+            "server_total_seconds": 4.002633119001985,
+            "prompt_tokens": 1746,
+            "new_tokens": 360,
+            "tokens_per_second": 89.94079379670008
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-14-beginner-level-mismatch",
+      "category": "learner_appropriateness",
+      "judge_status": "valid",
+      "derived_verdict": "revise",
+      "retry_used": false,
+      "expectation_pass": true,
+      "expectation_failures": [],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 2,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 2\n    },\n    \"completeness\": 2,\n    \"clarity\": 1,\n    \"pedagogy\": 1,\n    \"learner_appropriateness\": 1\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": true,\n    \"score\": 2\n  },\n  \"critical_errors\": [\n    {\n      \"type\": \"major_factual_error\",\n      \"description\": \"The answer is overly technical and does not provide a beginner-friendly explanation of what a decision tree is.\",\n      \"evidence\": \"The tutor's answer uses complex terminology such as 'axis-aligned partition', 'piecewise-constant estimator', and 'cost-complexity regularization', which are not suitable for a beginner.\"\n    }\n  ],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": \"beginner\",\n  \"rationale\": \"The tutor's answer is overly technical and does not provide a beginner-friendly explanation of what a decision tree is. The answer fails to meet the learner's level and does not effectively teach the concept. The retrieval relevance is low because the provided context and reference answers are not aligned with the answer's complexity and terminology.\"\n}",
+          "decoded_output": null,
+          "response_protocol": null,
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 3.450588700012304,
+            "server_total_seconds": 3.424355112016201,
+            "prompt_tokens": 1650,
+            "new_tokens": 308,
+            "tokens_per_second": 89.94394270594644
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-15-beginner-pedagogy",
+      "category": "pedagogy",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": true,
+      "expectation_failures": [],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 4,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 4\n    },\n    \"completeness\": 4,\n    \"clarity\": 4,\n    \"pedagogy\": 4,\n    \"learner_appropriateness\": 4\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": true,\n    \"score\": 4\n  },\n  \"critical_errors\": [],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": \"beginner\",\n  \"rationale\": \"The tutor's answer is clear, concise, and uses an analogy (flowchart) that is appropriate for a beginner. It correctly explains the basic concept of a decision tree and how it works. The retrieved context and reference answers support the tutor's explanation, and the answer is complete and relevant to the learner's level.\"\n}",
+          "decoded_output": null,
+          "response_protocol": null,
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 2.537114099948667,
+            "server_total_seconds": 2.510612001642585,
+            "prompt_tokens": 1674,
+            "new_tokens": 226,
+            "tokens_per_second": 90.01789199292362
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-16-off-topic-answer",
+      "category": "fails_to_answer",
+      "judge_status": "valid",
+      "derived_verdict": "revise",
+      "retry_used": false,
+      "expectation_pass": false,
+      "expectation_failures": [
+        "critical_errors=['wrong_method_or_calculation'], expected any of ['fails_to_answer_question']"
+      ],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 1,\n    \"groundedness\": {\n      \"applicable\": false,\n      \"score\": null\n    },\n    \"completeness\": 1,\n    \"clarity\": 1,\n    \"pedagogy\": 1,\n    \"learner_appropriateness\": 1\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": false,\n    \"score\": null\n  },\n  \"critical_errors\": [\n    {\n      \"type\": \"wrong_method_or_calculation\",\n      \"description\": \"The tutor's answer is completely unrelated to the question about recall in binary classification.\",\n      \"evidence\": \"The tutor's answer discusses K-means, which is irrelevant to the concept of recall in binary classification.\"\n    }\n  ],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": \"master\",\n  \"rationale\": \"The tutor's answer is fundamentally incorrect and does not address the question about recall in binary classification. The answer is entirely irrelevant to the topic, and there is no evidence to support any part of the response.\"\n}",
+          "decoded_output": null,
+          "response_protocol": null,
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 2.964129300089553,
+            "server_total_seconds": 2.938671000301838,
+            "prompt_tokens": 1619,
+            "new_tokens": 265,
+            "tokens_per_second": 90.17681801493983
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-17-fabricated-source",
+      "category": "fabricated_evidence",
+      "judge_status": "valid",
+      "derived_verdict": "revise",
+      "retry_used": false,
+      "expectation_pass": false,
+      "expectation_failures": [
+        "critical_errors=['major_factual_error'], expected any of ['contradiction_with_evidence', 'fabricated_evidence_or_source']"
+      ],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 1,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 1\n    },\n    \"completeness\": 1,\n    \"clarity\": 1,\n    \"pedagogy\": 1,\n    \"learner_appropriateness\": 1\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": true,\n    \"score\": 1\n  },\n  \"critical_errors\": [\n    {\n      \"type\": \"major_factual_error\",\n      \"description\": \"The tutor incorrectly states the range of silhouette scores as 0 to 100, while the correct range is -1 to 1.\",\n      \"evidence\": \"The tutor's answer: 'The slide explicitly states that silhouette scores range from 0 to 100 and cites Smith et al. (2024).' The retrieved context: 'The silhouette coefficient ranges from -1 to 1. Values near 1 indicate well-separated clusters.'\"\n    }\n  ],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": \"master\",\n  \"rationale\": \"The tutor's answer is fundamentally incorrect, as it provides an incorrect range for silhouette scores. This error is significant and cannot be accepted without revision. The answer is not grounded in the correct evidence, and it fails to address the question accurately. The retrieval relevance is also low because the tutor's answer contradicts the provided context.\"\n}",
+          "decoded_output": null,
+          "response_protocol": null,
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 3.849620099994354,
+            "server_total_seconds": 3.8152394387871027,
+            "prompt_tokens": 1646,
+            "new_tokens": 342,
+            "tokens_per_second": 89.64050762400504
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-18-incomplete-comparison",
+      "category": "incomplete_answer",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": false,
+      "expectation_failures": [
+        "verdict=accept, expected one of ['revise']",
+        "completeness=4, expected <= 2"
+      ],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 4,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 4\n    },\n    \"completeness\": 4,\n    \"clarity\": 4,\n    \"pedagogy\": 4,\n    \"learner_appropriateness\": 4\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": true,\n    \"score\": 4\n  },\n  \"critical_errors\": [],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": \"master\",\n  \"rationale\": \"The tutor's answer is mostly correct and aligns with the retrieved context and reference answers. It accurately compares the required parameters, cluster shape, and treatment of noise between k-means and DBSCAN. The answer is clear, complete, and appropriate for a master's-level student. There are no critical errors or significant issues that would prevent the answer from being accepted without revision.\"\n}",
+          "decoded_output": null,
+          "response_protocol": null,
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 2.6639425000175834,
+            "server_total_seconds": 2.6331425607204437,
+            "prompt_tokens": 1688,
+            "new_tokens": 236,
+            "tokens_per_second": 89.62674620071805
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-19-retrieval-partially-relevant",
+      "category": "retrieval_relevance",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": false,
+      "expectation_failures": [
+        "verdict=accept, expected one of ['review', 'revise']",
+        "groundedness=4, expected <= 3",
+        "retrieval_relevance=4, expected <= 3"
+      ],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 4,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 4\n    },\n    \"completeness\": 4,\n    \"clarity\": 4,\n    \"pedagogy\": 4,\n    \"learner_appropriateness\": 4\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": true,\n    \"score\": 4\n  },\n  \"critical_errors\": [],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": \"master\",\n  \"rationale\": \"The tutor's answer is correct and clear, providing a concise explanation of precision and recall, and when each metric matters. The answer is well-suited for a master's-level student, as it covers the essential concepts without unnecessary detail. The retrieval relevance is high, as the provided context supports the explanation of precision, though recall is not discussed in the context, which is a minor limitation.\"\n}",
+          "decoded_output": null,
+          "response_protocol": null,
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 2.6871998000424355,
+            "server_total_seconds": 2.656007492914796,
+            "prompt_tokens": 1655,
+            "new_tokens": 239,
+            "tokens_per_second": 89.98468590075889
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-20-no-learner-level",
+      "category": "missing_optional_metadata",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": false,
+      "expectation_failures": [
+        "appropriateness_assumption is required"
+      ],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "{\n  \"schema_version\": \"1.0\",\n  \"rubric_version\": \"1.0\",\n  \"scores\": {\n    \"correctness\": 4,\n    \"groundedness\": {\n      \"applicable\": true,\n      \"score\": 4\n    },\n    \"completeness\": 4,\n    \"clarity\": 4,\n    \"pedagogy\": 4,\n    \"learner_appropriateness\": 4\n  },\n  \"retrieval_relevance\": {\n    \"applicable\": true,\n    \"score\": 4\n  },\n  \"critical_errors\": [],\n  \"uncertain\": false,\n  \"uncertainty_reason\": null,\n  \"appropriateness_assumption\": null,\n  \"rationale\": \"The tutor's answer is mostly correct and aligns with the reference answer, providing a clear and concise explanation of information gain in decision trees. The answer is grounded in the provided evidence and covers the main point without omitting essential elements. The teaching style is direct, which is appropriate for the topic, and the answer is clear and easy to follow. The learner level is not specified, but the answer is suitable for a master's-level student in Data and Knowledge Engineering.\"\n}",
+          "decoded_output": null,
+          "response_protocol": null,
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 2.8424528000177816,
+            "server_total_seconds": 2.8172051683068275,
+            "prompt_tokens": 1640,
+            "new_tokens": 254,
+            "tokens_per_second": 90.16027758910329
+          }
+        }
+      ]
+    }
+  ],
+  "interpretation": "The schema gate measures integration reliability. Semantic expectation agreement is diagnostic and must not be used as the final model-selection result without independent human labels."
+}

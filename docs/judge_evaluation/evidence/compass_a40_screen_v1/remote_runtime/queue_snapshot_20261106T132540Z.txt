@@ -1,0 +1,40 @@
+captured_utc=2026-11-06T13:25:40Z
+JobId=506928 JobName=llmtutor_compass_gate
+   UserId=ovyj81af(20452) GroupId=ovyj81af(20452) MCS_label=N/A
+   Priority=23051 Nice=0 Account=regular QOS=normal
+   JobState=PENDING Reason=Resources Dependency=(null)
+   Requeue=0 Restarts=0 BatchFlag=1 Reboot=0 ExitCode=0:0
+   RunTime=00:00:00 TimeLimit=01:00:00 TimeMin=N/A
+   SubmitTime=2026-11-06T14:23:04 EligibleTime=2026-11-06T14:23:04
+   AccrueTime=2026-11-06T14:23:04
+   StartTime=2026-11-12T21:49:15 EndTime=2026-11-12T22:49:15 Deadline=N/A
+   SuspendTime=None SecsPreSuspend=0 LastSchedEval=2026-11-06T14:25:29 Scheduler=Backfill:*
+   Partition=gpu7d AllocNode:Sid=slurm_master:4026087
+   ReqNodeList=(null) ExcNodeList=(null)
+   NodeList=(null)
+   NumNodes=1 NumCPUs=8 NumTasks=1 CPUs/Task=8 ReqB:S:C:T=0:0:*:*
+   TRES=cpu=8,mem=48G,node=1,billing=8
+   Socks/Node=* NtasksPerN:B:S:C=0:0:*:1 CoreSpec=*
+   MinCPUsNode=8 MinMemoryNode=48G MinTmpDiskNode=0
+   Features=a30 DelayBoot=00:00:00
+   OverSubscribe=OK Contiguous=0 Licenses=(null) Network=(null)
+   Command=/beegfs1/home/ovyj81af/llmtutor/scripts/run_remote_model.sbatch compassjudger_2_7b_q4 8017
+   WorkDir=/beegfs1/home/ovyj81af/llmtutor
+   StdErr=/beegfs1/home/ovyj81af/llmtutor/logs/llmtutor_compass_gate_506928.err
+   StdIn=/dev/null
+   StdOut=/beegfs1/home/ovyj81af/llmtutor/logs/llmtutor_compass_gate_506928.out
+   Power=
+   TresPerNode=gres:gpu:a30:1
+   
+
+
+             JOBID PARTITION     NAME     USER ST          START_TIME  NODES SCHEDNODES           NODELIST(REASON)
+            506928     gpu7d llmtutor ovyj81af PD 2026-11-12T21:49:15      1 (null)               (Resources)
+
+NODELIST | GRES | AVAIL_FEATURES | STATE
+gpu02 | gpu:a100:2(S:0-1) | a100 | mix
+gpu03 | gpu:a100:2(S:0-1) | a100 | alloc
+gpu04 | gpu:a40:2(S:0-1) | a40 | idle
+gpu06 | gpu:a30:2(S:0-1) | a30 | alloc
+gpu07 | gpu:a30:2(S:0-1) | a30 | alloc
+gpu08 | gpu:a30:2 | a30 | alloc

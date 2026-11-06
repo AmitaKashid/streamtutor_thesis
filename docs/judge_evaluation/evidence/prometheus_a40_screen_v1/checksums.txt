@@ -1,0 +1,6 @@
+SHA256 hash of docs\judge_evaluation\evidence\prometheus_a40_screen_v1\schema_probe.json:
+0c1bf56a6a78a550bdde32a41567d46ad50f49de5099f288881bacebedc9fde2
+CertUtil: -hashfile command completed successfully.
+SHA256 hash of docs\judge_evaluation\evidence\prometheus_a40_screen_v1\prometheus_compatibility_evidence.tar.gz:
+683c92cc5b82da82ea0df1873110f0278a5ccd0b571d33303f17eeeae9529452
+CertUtil: -hashfile command completed successfully.

@@ -1,0 +1,16 @@
+candidate_key=compassjudger_2_7b_q4
+source_checkpoint=opencompass/CompassJudger-2-7B-Instruct
+deployment_repository=mradermacher/CompassJudger-2-7B-Instruct-GGUF
+repository_revision=4f6420273fafdae742814b86d4693a2206e47acc
+artifact=CompassJudger-2-7B-Instruct.Q4_K_M.gguf
+artifact_sha256=d35cda6bc0964316ca6351862ebce5d49d08e07798045ac7dddaa0d846e457f9
+quantization=Q4_K_M
+backend=llama-cpp-python-0.3.20
+git_commit=3d33ca9
+target_gpu=NVIDIA A30 24GB
+context_tokens=4096
+max_new_tokens=360
+temperature=0.0
+top_p=1.0
+seed=0
+port=8017

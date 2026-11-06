@@ -1,0 +1,9 @@
+SHA256 hash of docs\judge_evaluation\evidence\compass_a40_screen_v1\records.jsonl:
+e36f6e90951d1f609f430bd0a02ebf30eba7104ef08b42f2799f4a4987333771
+CertUtil: -hashfile command completed successfully.
+SHA256 hash of docs\judge_evaluation\evidence\compass_a40_screen_v1\report.json:
+5b0c0a0eb77752bc3681896524f2a3ec413797a996a4f320b5645ee44a73e97f
+CertUtil: -hashfile command completed successfully.
+SHA256 hash of docs\judge_evaluation\evidence\compass_a40_screen_v1\schema_probe.json:
+fe16376cde9fbaa538805beb63cce71f1045a28168555862604b8d262e60656e
+CertUtil: -hashfile command completed successfully.
