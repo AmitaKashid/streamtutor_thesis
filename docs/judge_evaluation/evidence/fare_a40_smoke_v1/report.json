@@ -1,0 +1,650 @@
+{
+  "run_id": "20261106T122627Z",
+  "dataset_id": "streamtutor-judge-smoke-v1",
+  "dataset_version": "1.0",
+  "judge_configuration": {
+    "base_url": "http://127.0.0.1:18016",
+    "model_id": "fare_20b_q4",
+    "backend": "llama.cpp via RemoteHTTPProvider",
+    "quantization": "Q4_K_M",
+    "hardware": "NVIDIA A40 48 GB"
+  },
+  "summary": {
+    "total_cases": 20,
+    "valid_json_cases": 19,
+    "valid_json_rate": 0.95,
+    "day1_schema_gate_pass": true,
+    "semantic_expectation_cases": 12,
+    "semantic_expectation_rate": 0.6,
+    "retry_cases": 1,
+    "attempt_latency_seconds": {
+      "mean": 1.6038,
+      "p50": 1.5159,
+      "p95": 2.0851,
+      "maximum": 2.1737
+    }
+  },
+  "outcomes": [
+    {
+      "id": "smoke-01-correct-grounded",
+      "category": "correct_answer",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": true,
+      "expectation_failures": [],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "<|channel|>final<|message|>{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":5,\"groundedness\":{\"applicable\":true,\"score\":5},\"completeness\":5,\"clarity\":5,\"pedagogy\":5,\"learner_appropriateness\":5},\"retrieval_relevance\":{\"applicable\":true,\"score\":5},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly defines support as the fraction of transactions containing the itemset, matches the reference, and is concise and clear.\"}",
+          "decoded_output": "{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":5,\"groundedness\":{\"applicable\":true,\"score\":5},\"completeness\":5,\"clarity\":5,\"pedagogy\":5,\"learner_appropriateness\":5},\"retrieval_relevance\":{\"applicable\":true,\"score\":5},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly defines support as the fraction of transactions containing the itemset, matches the reference, and is concise and clear.\"}",
+          "response_protocol": "harmony",
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 1.3382226000539958,
+            "server_total_seconds": 1.2419000044465065,
+            "prompt_tokens": 1684,
+            "new_tokens": 132,
+            "tokens_per_second": 106.28875072661758
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-02-major-factual-error",
+      "category": "incorrect_answer",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": false,
+      "expectation_failures": [
+        "verdict=accept, expected one of ['revise']",
+        "correctness=4, expected <= 2",
+        "critical_errors=[], expected any of ['contradiction_with_evidence', 'major_factual_error']"
+      ],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "<|channel|>final<|message|>{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":4,\"groundedness\":{\"applicable\":true,\"score\":4},\"completeness\":4,\"clarity\":4,\"pedagogy\":4,\"learner_appropriateness\":4},\"retrieval_relevance\":{\"applicable\":true,\"score\":4},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly defines support as a proportion of transactions containing the antecedent, matching the retrieved context and reference. It is concise, clear, and suitable for a master-level student.\"}",
+          "decoded_output": "{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":4,\"groundedness\":{\"applicable\":true,\"score\":4},\"completeness\":4,\"clarity\":4,\"pedagogy\":4,\"learner_appropriateness\":4},\"retrieval_relevance\":{\"applicable\":true,\"score\":4},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly defines support as a proportion of transactions containing the antecedent, matching the retrieved context and reference. It is concise, clear, and suitable for a master-level student.\"}",
+          "response_protocol": "harmony",
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 1.3496024999767542,
+            "server_total_seconds": 1.3164393119513988,
+            "prompt_tokens": 1675,
+            "new_tokens": 143,
+            "tokens_per_second": 108.62635193416297
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-03-partially-correct",
+      "category": "partially_correct_answer",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": false,
+      "expectation_failures": [
+        "verdict=accept, expected one of ['review', 'revise']",
+        "completeness=4, expected <= 3"
+      ],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "<|channel|>final<|message|>{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":4,\"groundedness\":{\"applicable\":true,\"score\":4},\"completeness\":4,\"clarity\":4,\"pedagogy\":4,\"learner_appropriateness\":4},\"retrieval_relevance\":{\"applicable\":true,\"score\":4},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly distinguishes support as a global frequency and confidence as a conditional frequency. It is supported by the retrieved context and reference answers. Minor wording issues do not affect correctness.\"}",
+          "decoded_output": "{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":4,\"groundedness\":{\"applicable\":true,\"score\":4},\"completeness\":4,\"clarity\":4,\"pedagogy\":4,\"learner_appropriateness\":4},\"retrieval_relevance\":{\"applicable\":true,\"score\":4},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly distinguishes support as a global frequency and confidence as a conditional frequency. It is supported by the retrieved context and reference answers. Minor wording issues do not affect correctness.\"}",
+          "response_protocol": "harmony",
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 1.3643041999312118,
+            "server_total_seconds": 1.3280934058129787,
+            "prompt_tokens": 1694,
+            "new_tokens": 142,
+            "tokens_per_second": 106.92019053665594
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-04-unsupported-claim",
+      "category": "unsupported_claim",
+      "judge_status": "valid",
+      "derived_verdict": "revise",
+      "retry_used": false,
+      "expectation_pass": true,
+      "expectation_failures": [],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "<|channel|>final<|message|>{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":2,\"groundedness\":{\"applicable\":true,\"score\":2},\"completeness\":2,\"clarity\":3,\"pedagogy\":2,\"learner_appropriateness\":4},\"retrieval_relevance\":{\"applicable\":true,\"score\":4},\"critical_errors\":[{\"type\":\"contradiction_with_evidence\",\"description\":\"The answer claims DBSCAN is always faster than k-means on every dataset, which contradicts the evidence that only states DBSCAN can discover arbitrary-shaped clusters and identify noise.\",\"evidence\":\"DBSCAN is a density-based method that can discover clusters with arbitrary shape and can identify noise points.\"}],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer contains a major factual error about performance relative to k-means, lacks evidence for that claim, and omits key details about DBSCAN\u2019s behavior. It is partially clear but not fully pedagogically sound.\"}",
+          "decoded_output": "{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":2,\"groundedness\":{\"applicable\":true,\"score\":2},\"completeness\":2,\"clarity\":3,\"pedagogy\":2,\"learner_appropriateness\":4},\"retrieval_relevance\":{\"applicable\":true,\"score\":4},\"critical_errors\":[{\"type\":\"contradiction_with_evidence\",\"description\":\"The answer claims DBSCAN is always faster than k-means on every dataset, which contradicts the evidence that only states DBSCAN can discover arbitrary-shaped clusters and identify noise.\",\"evidence\":\"DBSCAN is a density-based method that can discover clusters with arbitrary shape and can identify noise points.\"}],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer contains a major factual error about performance relative to k-means, lacks evidence for that claim, and omits key details about DBSCAN\u2019s behavior. It is partially clear but not fully pedagogically sound.\"}",
+          "response_protocol": "harmony",
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 2.0374249999877065,
+            "server_total_seconds": 2.0086780674755573,
+            "prompt_tokens": 1676,
+            "new_tokens": 221,
+            "tokens_per_second": 110.02260819114024
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-05-empty-answer",
+      "category": "empty_answer",
+      "judge_status": "invalid",
+      "derived_verdict": null,
+      "retry_used": true,
+      "expectation_pass": false,
+      "expectation_failures": [
+        "judge_status=invalid"
+      ],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "<|channel|>final<|message|>{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":1,\"groundedness\":{\"applicable\":true,\"score\":1},\"completeness\":1,\"clarity\":1,\"pedagogy\":1,\"learner_appropriateness\":1},\"retrieval_relevance\":{\"applicable\":true,\"score\":1},\"critical_errors\":[{\"type\":\"fails_to_answer_question\",\"description\":\"The tutor answer is empty, providing no explanation of clustering.\",\"evidence\":\"\"}],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The tutor answer is empty, so it fails to address the question, lacks any content, and is not grounded in the provided context.\"}",
+          "decoded_output": "{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":1,\"groundedness\":{\"applicable\":true,\"score\":1},\"completeness\":1,\"clarity\":1,\"pedagogy\":1,\"learner_appropriateness\":1},\"retrieval_relevance\":{\"applicable\":true,\"score\":1},\"critical_errors\":[{\"type\":\"fails_to_answer_question\",\"description\":\"The tutor answer is empty, providing no explanation of clustering.\",\"evidence\":\"\"}],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The tutor answer is empty, so it fails to address the question, lacks any content, and is not grounded in the provided context.\"}",
+          "response_protocol": "harmony",
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": false,
+          "validation_error": "critical_errors.0.evidence: '' should be non-empty",
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 1.5159041000297293,
+            "server_total_seconds": 1.4845451898872852,
+            "prompt_tokens": 1651,
+            "new_tokens": 161,
+            "tokens_per_second": 108.45072355946537
+          }
+        },
+        {
+          "attempt": 2,
+          "raw_output": "<|channel|>final<|message|>{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":1,\"groundedness\":{\"applicable\":true,\"score\":1},\"completeness\":1,\"clarity\":1,\"pedagogy\":1,\"learner_appropriateness\":1},\"retrieval_relevance\":{\"applicable\":true,\"score\":1},\"critical_errors\":[{\"type\":\"major_factual_error\",\"description\":\"The answer is empty, providing no information about clustering.\",\"evidence\":\"\"}],\"uncertain\":true,\"uncertainty_reason\":\"No answer content to evaluate\",\"appropriateness_assumption\":\"master\",\"rationale\":\"The tutor answer is empty, so all dimensions are minimally scored.\"}",
+          "decoded_output": "{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":1,\"groundedness\":{\"applicable\":true,\"score\":1},\"completeness\":1,\"clarity\":1,\"pedagogy\":1,\"learner_appropriateness\":1},\"retrieval_relevance\":{\"applicable\":true,\"score\":1},\"critical_errors\":[{\"type\":\"major_factual_error\",\"description\":\"The answer is empty, providing no information about clustering.\",\"evidence\":\"\"}],\"uncertain\":true,\"uncertainty_reason\":\"No answer content to evaluate\",\"appropriateness_assumption\":\"master\",\"rationale\":\"The tutor answer is empty, so all dimensions are minimally scored.\"}",
+          "response_protocol": "harmony",
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": false,
+          "validation_error": "critical_errors.0.evidence: '' should be non-empty",
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 1.4145344001008198,
+            "server_total_seconds": 1.369386699050665,
+            "prompt_tokens": 1741,
+            "new_tokens": 150,
+            "tokens_per_second": 109.5380874547623
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-06-long-correct-answer",
+      "category": "long_answer",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": true,
+      "expectation_failures": [],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "<|channel|>final<|message|>{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":5,\"groundedness\":{\"applicable\":true,\"score\":5},\"completeness\":5,\"clarity\":5,\"pedagogy\":5,\"learner_appropriateness\":5},\"retrieval_relevance\":{\"applicable\":true,\"score\":5},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly explains that k\u2011means uses Euclidean distance and that a feature with a large range can dominate the distance calculation. It states that standardizing to zero mean and unit variance makes scales comparable, which is supported by the retrieved context and reference answer. The answer is complete, clear, pedagogically sound, and appropriately tailored to a master\u2019s level learner.\"}",
+          "decoded_output": "{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":5,\"groundedness\":{\"applicable\":true,\"score\":5},\"completeness\":5,\"clarity\":5,\"pedagogy\":5,\"learner_appropriateness\":5},\"retrieval_relevance\":{\"applicable\":true,\"score\":5},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly explains that k\u2011means uses Euclidean distance and that a feature with a large range can dominate the distance calculation. It states that standardizing to zero mean and unit variance makes scales comparable, which is supported by the retrieved context and reference answer. The answer is complete, clear, pedagogically sound, and appropriately tailored to a master\u2019s level learner.\"}",
+          "response_protocol": "harmony",
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 1.6980269000632688,
+            "server_total_seconds": 1.668308025225997,
+            "prompt_tokens": 1755,
+            "new_tokens": 180,
+            "tokens_per_second": 107.89374460727439
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-07-injection-in-answer",
+      "category": "prompt_injection",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": true,
+      "expectation_failures": [],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "<|channel|>final<|message|>{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":5,\"groundedness\":{\"applicable\":true,\"score\":5},\"completeness\":5,\"clarity\":5,\"pedagogy\":5,\"learner_appropriateness\":5},\"retrieval_relevance\":{\"applicable\":true,\"score\":5},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly states that a validation set is used for model selection and hyperparameter tuning, matching the retrieved context and reference answer. It is concise, clear, and fully addresses the learner\u2019s question. No critical errors are present.\"}",
+          "decoded_output": "{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":5,\"groundedness\":{\"applicable\":true,\"score\":5},\"completeness\":5,\"clarity\":5,\"pedagogy\":5,\"learner_appropriateness\":5},\"retrieval_relevance\":{\"applicable\":true,\"score\":5},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly states that a validation set is used for model selection and hyperparameter tuning, matching the retrieved context and reference answer. It is concise, clear, and fully addresses the learner\u2019s question. No critical errors are present.\"}",
+          "response_protocol": "harmony",
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 1.4538034000433981,
+            "server_total_seconds": 1.4234413672238588,
+            "prompt_tokens": 1691,
+            "new_tokens": 153,
+            "tokens_per_second": 107.48598679438147
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-08-injection-in-context",
+      "category": "prompt_injection",
+      "judge_status": "valid",
+      "derived_verdict": "revise",
+      "retry_used": false,
+      "expectation_pass": true,
+      "expectation_failures": [],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "<|channel|>final<|message|>{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":1,\"groundedness\":{\"applicable\":true,\"score\":1},\"completeness\":1,\"clarity\":4,\"pedagogy\":2,\"learner_appropriateness\":4},\"retrieval_relevance\":{\"applicable\":true,\"score\":5},\"critical_errors\":[{\"type\":\"major_factual_error\",\"description\":\"The answer incorrectly states that k\u2011means learns from labeled examples and is a supervised classification algorithm.\",\"evidence\":\"Yes. K\u2011means learns from labeled examples and predicts one of the known class labels.\"}],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer is factually incorrect; k\u2011means is unsupervised. Groundedness is low because it contradicts the provided evidence. Completeness is low because it fails to address the question correctly. Clarity is moderate. Pedagogy is low due to incorrect teaching. Learner appropriateness is acceptable but the content is wrong.\"}",
+          "decoded_output": "{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":1,\"groundedness\":{\"applicable\":true,\"score\":1},\"completeness\":1,\"clarity\":4,\"pedagogy\":2,\"learner_appropriateness\":4},\"retrieval_relevance\":{\"applicable\":true,\"score\":5},\"critical_errors\":[{\"type\":\"major_factual_error\",\"description\":\"The answer incorrectly states that k\u2011means learns from labeled examples and is a supervised classification algorithm.\",\"evidence\":\"Yes. K\u2011means learns from labeled examples and predicts one of the known class labels.\"}],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer is factually incorrect; k\u2011means is unsupervised. Groundedness is low because it contradicts the provided evidence. Completeness is low because it fails to address the question correctly. Clarity is moderate. Pedagogy is low due to incorrect teaching. Learner appropriateness is acceptable but the content is wrong.\"}",
+          "response_protocol": "harmony",
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 2.085122999968007,
+            "server_total_seconds": 2.0607193782925606,
+            "prompt_tokens": 1687,
+            "new_tokens": 226,
+            "tokens_per_second": 109.67043954682255
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-09-no-rag-context",
+      "category": "missing_rag_context",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": true,
+      "expectation_failures": [],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "<|channel|>final<|message|>{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":5,\"groundedness\":{\"applicable\":false,\"score\":null},\"completeness\":5,\"clarity\":5,\"pedagogy\":5,\"learner_appropriateness\":5},\"retrieval_relevance\":{\"applicable\":false,\"score\":null},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly defines overfitting, is concise, clear, and matches the learner\u2019s master level.\"}",
+          "decoded_output": "{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":5,\"groundedness\":{\"applicable\":false,\"score\":null},\"completeness\":5,\"clarity\":5,\"pedagogy\":5,\"learner_appropriateness\":5},\"retrieval_relevance\":{\"applicable\":false,\"score\":null},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly defines overfitting, is concise, clear, and matches the learner\u2019s master level.\"}",
+          "response_protocol": "harmony",
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 1.216764200013131,
+            "server_total_seconds": 1.1953677274286747,
+            "prompt_tokens": 1648,
+            "new_tokens": 128,
+            "tokens_per_second": 107.0800198658011
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-10-interrupted-response",
+      "category": "interrupted_answer",
+      "judge_status": "valid",
+      "derived_verdict": "revise",
+      "retry_used": false,
+      "expectation_pass": true,
+      "expectation_failures": [],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "<|channel|>final<|message|>{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":3,\"groundedness\":{\"applicable\":true,\"score\":3},\"completeness\":2,\"clarity\":3,\"pedagogy\":3,\"learner_appropriateness\":4},\"retrieval_relevance\":{\"applicable\":true,\"score\":4},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly outlines the main steps of k\u2011means but stops abruptly, omitting the stopping condition and details such as convergence criteria or max iterations. It is supported by the retrieved context, but the omission of the stopping condition is a significant limitation. The explanation is clear but incomplete, and the pedagogical depth is moderate. The learner level is assumed master\u2011level, and the answer is generally suitable but not fully comprehensive.\"}",
+          "decoded_output": "{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":3,\"groundedness\":{\"applicable\":true,\"score\":3},\"completeness\":2,\"clarity\":3,\"pedagogy\":3,\"learner_appropriateness\":4},\"retrieval_relevance\":{\"applicable\":true,\"score\":4},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly outlines the main steps of k\u2011means but stops abruptly, omitting the stopping condition and details such as convergence criteria or max iterations. It is supported by the retrieved context, but the omission of the stopping condition is a significant limitation. The explanation is clear but incomplete, and the pedagogical depth is moderate. The learner level is assumed master\u2011level, and the answer is generally suitable but not fully comprehensive.\"}",
+          "response_protocol": "harmony",
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 1.7988364999182522,
+            "server_total_seconds": 1.775116117671132,
+            "prompt_tokens": 1721,
+            "new_tokens": 192,
+            "tokens_per_second": 108.16193830288402
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-11-irrelevant-retrieval",
+      "category": "retrieval_relevance",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": false,
+      "expectation_failures": [
+        "verdict=accept, expected one of ['review', 'revise']"
+      ],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "<|channel|>final<|message|>{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":5,\"groundedness\":{\"applicable\":true,\"score\":5},\"completeness\":5,\"clarity\":5,\"pedagogy\":5,\"learner_appropriateness\":5},\"retrieval_relevance\":{\"applicable\":true,\"score\":1},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly defines precision. It is fully correct, grounded, complete, clear, pedagogically sound, and appropriate for a master-level learner. However, the retrieved context is irrelevant to the question, so retrieval relevance is low.\"}",
+          "decoded_output": "{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":5,\"groundedness\":{\"applicable\":true,\"score\":5},\"completeness\":5,\"clarity\":5,\"pedagogy\":5,\"learner_appropriateness\":5},\"retrieval_relevance\":{\"applicable\":true,\"score\":1},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly defines precision. It is fully correct, grounded, complete, clear, pedagogically sound, and appropriate for a master-level learner. However, the retrieved context is irrelevant to the question, so retrieval relevance is low.\"}",
+          "response_protocol": "harmony",
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 1.4297396000474691,
+            "server_total_seconds": 1.4087288901209831,
+            "prompt_tokens": 1668,
+            "new_tokens": 153,
+            "tokens_per_second": 108.60854850989831
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-12-correct-confidence-calculation",
+      "category": "calculation_correct",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": true,
+      "expectation_failures": [],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "<|channel|>final<|message|>{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":5,\"groundedness\":{\"applicable\":true,\"score\":5},\"completeness\":5,\"clarity\":5,\"pedagogy\":5,\"learner_appropriateness\":5},\"retrieval_relevance\":{\"applicable\":true,\"score\":5},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly applies the definition of confidence, uses the provided evidence, and fully addresses the learner\u2019s question with clear, concise reasoning.\"}",
+          "decoded_output": "{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":5,\"groundedness\":{\"applicable\":true,\"score\":5},\"completeness\":5,\"clarity\":5,\"pedagogy\":5,\"learner_appropriateness\":5},\"retrieval_relevance\":{\"applicable\":true,\"score\":5},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly applies the definition of confidence, uses the provided evidence, and fully addresses the learner\u2019s question with clear, concise reasoning.\"}",
+          "response_protocol": "harmony",
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 1.2861085999757051,
+            "server_total_seconds": 1.2572352588176727,
+            "prompt_tokens": 1696,
+            "new_tokens": 134,
+            "tokens_per_second": 106.58307509289556
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-13-wrong-calculation",
+      "category": "calculation_error",
+      "judge_status": "valid",
+      "derived_verdict": "revise",
+      "retry_used": false,
+      "expectation_pass": true,
+      "expectation_failures": [],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "<|channel|>final<|message|>{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":2,\"groundedness\":{\"applicable\":true,\"score\":2},\"completeness\":4,\"clarity\":4,\"pedagogy\":4,\"learner_appropriateness\":4},\"retrieval_relevance\":{\"applicable\":true,\"score\":4},\"critical_errors\":[{\"type\":\"major_factual_error\",\"description\":\"The tutor answer incorrectly calculates confidence as 6/8 = 0.90, but the correct value is 0.75.\",\"evidence\":\"confidence(X -> Y) = 6/8 = 0.90, or 90%.\"}],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer miscalculates the confidence; reference answer shows correct 0.75. The rest of the answer is otherwise clear and complete.\"}",
+          "decoded_output": "{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":2,\"groundedness\":{\"applicable\":true,\"score\":2},\"completeness\":4,\"clarity\":4,\"pedagogy\":4,\"learner_appropriateness\":4},\"retrieval_relevance\":{\"applicable\":true,\"score\":4},\"critical_errors\":[{\"type\":\"major_factual_error\",\"description\":\"The tutor answer incorrectly calculates confidence as 6/8 = 0.90, but the correct value is 0.75.\",\"evidence\":\"confidence(X -> Y) = 6/8 = 0.90, or 90%.\"}],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer miscalculates the confidence; reference answer shows correct 0.75. The rest of the answer is otherwise clear and complete.\"}",
+          "response_protocol": "harmony",
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 1.8132078000344336,
+            "server_total_seconds": 1.7897037994116545,
+            "prompt_tokens": 1686,
+            "new_tokens": 197,
+            "tokens_per_second": 110.07408045105653
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-14-beginner-level-mismatch",
+      "category": "learner_appropriateness",
+      "judge_status": "valid",
+      "derived_verdict": "revise",
+      "retry_used": false,
+      "expectation_pass": true,
+      "expectation_failures": [],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "<|channel|>final<|message|>{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":2,\"groundedness\":{\"applicable\":true,\"score\":2},\"completeness\":2,\"clarity\":2,\"pedagogy\":2,\"learner_appropriateness\":2},\"retrieval_relevance\":{\"applicable\":true,\"score\":2},\"critical_errors\":[{\"type\":\"major_factual_error\",\"description\":\"The answer uses technical jargon inappropriate for a beginner and misrepresents the concept as a complex mathematical formulation.\",\"evidence\":\"It is a recursively induced axis-aligned partition implementing a piecewise-constant estimator under impurity-functional minimization with cost-complexity regularization.\"}],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":\"beginner\",\"rationale\":\"The answer is overly technical, lacks simple explanation, and does not align with the provided context or reference.\"}",
+          "decoded_output": "{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":2,\"groundedness\":{\"applicable\":true,\"score\":2},\"completeness\":2,\"clarity\":2,\"pedagogy\":2,\"learner_appropriateness\":2},\"retrieval_relevance\":{\"applicable\":true,\"score\":2},\"critical_errors\":[{\"type\":\"major_factual_error\",\"description\":\"The answer uses technical jargon inappropriate for a beginner and misrepresents the concept as a complex mathematical formulation.\",\"evidence\":\"It is a recursively induced axis-aligned partition implementing a piecewise-constant estimator under impurity-functional minimization with cost-complexity regularization.\"}],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":\"beginner\",\"rationale\":\"The answer is overly technical, lacks simple explanation, and does not align with the provided context or reference.\"}",
+          "response_protocol": "harmony",
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 1.7872107999864966,
+            "server_total_seconds": 1.7682225909084082,
+            "prompt_tokens": 1692,
+            "new_tokens": 194,
+            "tokens_per_second": 109.71469372548525
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-15-beginner-pedagogy",
+      "category": "pedagogy",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": true,
+      "expectation_failures": [],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "<|channel|>final<|message|>{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":4,\"groundedness\":{\"applicable\":true,\"score\":4},\"completeness\":4,\"clarity\":4,\"pedagogy\":4,\"learner_appropriateness\":4},\"retrieval_relevance\":{\"applicable\":true,\"score\":4},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly describes a decision tree as a sequence of feature-based questions leading to a leaf prediction, matching the provided context and reference. It is clear, concise, and suitable for a beginner, with no major errors or missing essential content.\"}",
+          "decoded_output": "{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":4,\"groundedness\":{\"applicable\":true,\"score\":4},\"completeness\":4,\"clarity\":4,\"pedagogy\":4,\"learner_appropriateness\":4},\"retrieval_relevance\":{\"applicable\":true,\"score\":4},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly describes a decision tree as a sequence of feature-based questions leading to a leaf prediction, matching the provided context and reference. It is clear, concise, and suitable for a beginner, with no major errors or missing essential content.\"}",
+          "response_protocol": "harmony",
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 1.4710097000934184,
+            "server_total_seconds": 1.4354446679353714,
+            "prompt_tokens": 1713,
+            "new_tokens": 155,
+            "tokens_per_second": 107.98047703429738
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-16-off-topic-answer",
+      "category": "fails_to_answer",
+      "judge_status": "valid",
+      "derived_verdict": "revise",
+      "retry_used": false,
+      "expectation_pass": false,
+      "expectation_failures": [
+        "critical_errors=['major_factual_error'], expected any of ['fails_to_answer_question']"
+      ],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "<|channel|>final<|message|>{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":1,\"groundedness\":{\"applicable\":true,\"score\":1},\"completeness\":1,\"clarity\":1,\"pedagogy\":1,\"learner_appropriateness\":1},\"retrieval_relevance\":{\"applicable\":true,\"score\":1},\"critical_errors\":[{\"type\":\"major_factual_error\",\"description\":\"The answer does not address the question about recall; it incorrectly discusses k-means clustering.\",\"evidence\":\"K-means usually starts by selecting k initial centroids.\"}],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The tutor answer is irrelevant to the learner question, providing incorrect content about k-means instead of recall. All dimensions score lowest due to lack of correct, grounded, complete, clear, pedagogical, and learner-appropriate content.\"}",
+          "decoded_output": "{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":1,\"groundedness\":{\"applicable\":true,\"score\":1},\"completeness\":1,\"clarity\":1,\"pedagogy\":1,\"learner_appropriateness\":1},\"retrieval_relevance\":{\"applicable\":true,\"score\":1},\"critical_errors\":[{\"type\":\"major_factual_error\",\"description\":\"The answer does not address the question about recall; it incorrectly discusses k-means clustering.\",\"evidence\":\"K-means usually starts by selecting k initial centroids.\"}],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The tutor answer is irrelevant to the learner question, providing incorrect content about k-means instead of recall. All dimensions score lowest due to lack of correct, grounded, complete, clear, pedagogical, and learner-appropriate content.\"}",
+          "response_protocol": "harmony",
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 1.8146781999384984,
+            "server_total_seconds": 1.7849502135068178,
+            "prompt_tokens": 1658,
+            "new_tokens": 197,
+            "tokens_per_second": 110.36722397593502
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-17-fabricated-source",
+      "category": "fabricated_evidence",
+      "judge_status": "valid",
+      "derived_verdict": "revise",
+      "retry_used": false,
+      "expectation_pass": true,
+      "expectation_failures": [],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "<|channel|>final<|message|>{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":1,\"groundedness\":{\"applicable\":true,\"score\":1},\"completeness\":2,\"clarity\":4,\"pedagogy\":3,\"learner_appropriateness\":4},\"retrieval_relevance\":{\"applicable\":true,\"score\":4},\"critical_errors\":[{\"type\":\"major_factual_error\",\"description\":\"The answer incorrectly states the silhouette score range as 0 to 100.\",\"evidence\":\"The tutor answer says: 'The slide explicitly states that silhouette scores range from 0 to 100 and cites Smith et al. (2024).'\"},{\"type\":\"contradiction_with_evidence\",\"description\":\"The retrieved context states the range is -1 to 1.\",\"evidence\":\"The retrieved context says: 'The silhouette coefficient ranges from -1 to 1.'\"}],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer misstates the range; evidence shows correct range -1 to 1. The answer is incomplete and not fully correct.\"}",
+          "decoded_output": "{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":1,\"groundedness\":{\"applicable\":true,\"score\":1},\"completeness\":2,\"clarity\":4,\"pedagogy\":3,\"learner_appropriateness\":4},\"retrieval_relevance\":{\"applicable\":true,\"score\":4},\"critical_errors\":[{\"type\":\"major_factual_error\",\"description\":\"The answer incorrectly states the silhouette score range as 0 to 100.\",\"evidence\":\"The tutor answer says: 'The slide explicitly states that silhouette scores range from 0 to 100 and cites Smith et al. (2024).'\"},{\"type\":\"contradiction_with_evidence\",\"description\":\"The retrieved context states the range is -1 to 1.\",\"evidence\":\"The retrieved context says: 'The silhouette coefficient ranges from -1 to 1.'\"}],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer misstates the range; evidence shows correct range -1 to 1. The answer is incomplete and not fully correct.\"}",
+          "response_protocol": "harmony",
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 2.1737274000188336,
+            "server_total_seconds": 2.1452148109674454,
+            "prompt_tokens": 1682,
+            "new_tokens": 238,
+            "tokens_per_second": 110.94460041167959
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-18-incomplete-comparison",
+      "category": "incomplete_answer",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": false,
+      "expectation_failures": [
+        "verdict=accept, expected one of ['revise']",
+        "completeness=4, expected <= 2"
+      ],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "<|channel|>final<|message|>{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":4,\"groundedness\":{\"applicable\":true,\"score\":4},\"completeness\":4,\"clarity\":4,\"pedagogy\":4,\"learner_appropriateness\":4},\"retrieval_relevance\":{\"applicable\":true,\"score\":4},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly identifies the key differences in parameters, cluster shape, and noise handling. It is concise but covers all requested aspects. The evidence from the retrieved context and reference answers supports the claims, with no major omissions or errors.\"}",
+          "decoded_output": "{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":4,\"groundedness\":{\"applicable\":true,\"score\":4},\"completeness\":4,\"clarity\":4,\"pedagogy\":4,\"learner_appropriateness\":4},\"retrieval_relevance\":{\"applicable\":true,\"score\":4},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly identifies the key differences in parameters, cluster shape, and noise handling. It is concise but covers all requested aspects. The evidence from the retrieved context and reference answers supports the claims, with no major omissions or errors.\"}",
+          "response_protocol": "harmony",
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 1.4725439000176266,
+            "server_total_seconds": 1.4468536358326674,
+            "prompt_tokens": 1727,
+            "new_tokens": 153,
+            "tokens_per_second": 105.7467018161434
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-19-retrieval-partially-relevant",
+      "category": "retrieval_relevance",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": false,
+      "expectation_failures": [
+        "verdict=accept, expected one of ['review', 'revise']",
+        "groundedness=4, expected <= 3",
+        "retrieval_relevance=4, expected <= 3"
+      ],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "<|channel|>final<|message|>{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":4,\"groundedness\":{\"applicable\":true,\"score\":4},\"completeness\":4,\"clarity\":4,\"pedagogy\":4,\"learner_appropriateness\":4},\"retrieval_relevance\":{\"applicable\":true,\"score\":4},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly defines precision and recall, matches the learner level, and uses the provided context. It omits the detail that recall is not discussed in the excerpt, but this is a minor omission. The answer is clear, pedagogically sound, and appropriately matched to a master-level student.\"}",
+          "decoded_output": "{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":4,\"groundedness\":{\"applicable\":true,\"score\":4},\"completeness\":4,\"clarity\":4,\"pedagogy\":4,\"learner_appropriateness\":4},\"retrieval_relevance\":{\"applicable\":true,\"score\":4},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly defines precision and recall, matches the learner level, and uses the provided context. It omits the detail that recall is not discussed in the excerpt, but this is a minor omission. The answer is clear, pedagogically sound, and appropriately matched to a master-level student.\"}",
+          "response_protocol": "harmony",
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 1.557270299992524,
+            "server_total_seconds": 1.5274966899305582,
+            "prompt_tokens": 1693,
+            "new_tokens": 165,
+            "tokens_per_second": 108.01987401196993
+          }
+        }
+      ]
+    },
+    {
+      "id": "smoke-20-no-learner-level",
+      "category": "missing_optional_metadata",
+      "judge_status": "valid",
+      "derived_verdict": "accept",
+      "retry_used": false,
+      "expectation_pass": false,
+      "expectation_failures": [
+        "appropriateness_assumption is required"
+      ],
+      "attempts": [
+        {
+          "attempt": 1,
+          "raw_output": "<|channel|>final<|message|>{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":5,\"groundedness\":{\"applicable\":true,\"score\":5},\"completeness\":4,\"clarity\":5,\"pedagogy\":4,\"learner_appropriateness\":4},\"retrieval_relevance\":{\"applicable\":true,\"score\":5},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly defines information gain as the reduction in entropy due to a split, matching the reference. It is concise, clear, and uses correct terminology. The only minor omission is that it does not explicitly mention the formula (entropy before minus weighted entropy after), but the definition is sufficient. No critical errors are present.\"}",
+          "decoded_output": "{\"schema_version\":\"1.0\",\"rubric_version\":\"1.0\",\"scores\":{\"correctness\":5,\"groundedness\":{\"applicable\":true,\"score\":5},\"completeness\":4,\"clarity\":5,\"pedagogy\":4,\"learner_appropriateness\":4},\"retrieval_relevance\":{\"applicable\":true,\"score\":5},\"critical_errors\":[],\"uncertain\":false,\"uncertainty_reason\":null,\"appropriateness_assumption\":null,\"rationale\":\"The answer correctly defines information gain as the reduction in entropy due to a split, matching the reference. It is concise, clear, and uses correct terminology. The only minor omission is that it does not explicitly mention the formula (entropy before minus weighted entropy after), but the definition is sufficient. No critical errors are present.\"}",
+          "response_protocol": "harmony",
+          "protocol_error": null,
+          "json_valid": true,
+          "schema_valid": true,
+          "validation_error": null,
+          "generation_error": null,
+          "metrics": {
+            "wall_seconds": 1.6007988000055775,
+            "server_total_seconds": 1.5771304722875357,
+            "prompt_tokens": 1680,
+            "new_tokens": 171,
+            "tokens_per_second": 108.42476447238667
+          }
+        }
+      ]
+    }
+  ],
+  "interpretation": "The schema gate measures integration reliability. Semantic expectation agreement is diagnostic and must not be used as the final model-selection result without independent human labels."
+}
