@@ -1,0 +1,79 @@
+{
+  "dataset_id": "streamtutor-llm-judge-evaluation-v3",
+  "dataset_version": "3.0.0",
+  "created_utc": "2026-11-07T08:09:25+00:00",
+  "sources": [
+    {
+      "deck_id": "classification_underpinnings",
+      "filename": "1_Classification_Unit_Underpinnings(3).pdf",
+      "sha256": "e7bb814fdeca9c3204b921824d10ed85a9f30db27c7532e3cc9007333af5ac6f",
+      "bytes": 1482048,
+      "pages": 21,
+      "redistribution": "not_included_in_dataset_archive",
+      "role": "authoritative_course_source"
+    },
+    {
+      "deck_id": "decision_trees",
+      "filename": "1_Classification_Unit_DTs(3).pdf",
+      "sha256": "2e3dd2afa19e3b8f8e8c62966a5f076f5b5a06849b30afd085cea3c3ecd88a18",
+      "bytes": 1364251,
+      "pages": 35,
+      "redistribution": "not_included_in_dataset_archive",
+      "role": "authoritative_course_source"
+    },
+    {
+      "deck_id": "naive_bayes",
+      "filename": "1_Classification_Unit_NB(3).pdf",
+      "sha256": "5de50252ef5338513260047ee48d0719610ffcf836d5c192dc634fc406d89772",
+      "bytes": 865311,
+      "pages": 23,
+      "redistribution": "not_included_in_dataset_archive",
+      "role": "authoritative_course_source"
+    },
+    {
+      "deck_id": "clustering",
+      "filename": "2_Clustering_withSilhouetteSlide_removed(3).pdf",
+      "sha256": "f9c6a06642a95b9d5f351e93da0ed5fb4b2aa2848e99a75254aa2454c2cf5577",
+      "bytes": 10311142,
+      "pages": 98,
+      "redistribution": "not_included_in_dataset_archive",
+      "role": "authoritative_course_source"
+    },
+    {
+      "deck_id": "silhouette_replacement",
+      "filename": "2_Clustering_Silhouette(3).pdf",
+      "sha256": "e13a7d110b31f5eb57fa0c13ad4add69451a77ee2d310847b9ab6eebc4d0b349",
+      "bytes": 798731,
+      "pages": 3,
+      "redistribution": "not_included_in_dataset_archive",
+      "role": "authoritative_course_source"
+    },
+    {
+      "deck_id": "feature_selection",
+      "filename": "DataEng_3_FeatureSelection_HANDOUT(3).pdf",
+      "sha256": "abbca6be56fb98108914ea6364bf438e1ea0a52f6fb5e5803b037548a3f23799",
+      "bytes": 2826261,
+      "pages": 47,
+      "redistribution": "not_included_in_dataset_archive",
+      "role": "authoritative_course_source"
+    },
+    {
+      "deck_id": "evaluation_basics",
+      "filename": "Evaluation_Unit_1_Basics(3).pdf",
+      "sha256": "5f5389a66060a75e8afe31879840f4145db6ab68cb4df734566bbbe2f92c2bce",
+      "bytes": 1899099,
+      "pages": 45,
+      "redistribution": "not_included_in_dataset_archive",
+      "role": "authoritative_course_source"
+    },
+    {
+      "deck_id": "best_model",
+      "filename": "Evaluation_Unit_2_Bestmodel(3).pdf",
+      "sha256": "021b4bd601f27b2712ca27cb567390c0051022e390f204a590e772f2355b67cc",
+      "bytes": 4626705,
+      "pages": 50,
+      "redistribution": "not_included_in_dataset_archive",
+      "role": "authoritative_course_source"
+    }
+  ]
+}

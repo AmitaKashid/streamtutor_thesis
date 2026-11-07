@@ -1,0 +1,98 @@
+{
+  "dataset_id": "streamtutor-llm-judge-evaluation-v3",
+  "dataset_version": "3.0.0",
+  "validated_utc": "2026-11-07T08:09:25+00:00",
+  "valid": true,
+  "errors": [],
+  "warnings": [],
+  "counts": {
+    "conversations": 16,
+    "question_turns": 48,
+    "response_cases": 144,
+    "responses_by_split": {
+      "calibration": 18,
+      "robustness": 18,
+      "selection": 108
+    },
+    "responses_by_quality_level": {
+      "borderline": 48,
+      "critical": 48,
+      "excellent": 48
+    },
+    "questions_by_unit": {
+      "best_model": 6,
+      "classification_underpinnings": 6,
+      "clustering": 9,
+      "decision_trees": 9,
+      "evaluation_basics": 6,
+      "feature_selection": 6,
+      "naive_bayes": 6
+    },
+    "questions_by_type": {
+      "algorithm_explanation": 4,
+      "ambiguous_follow_up": 1,
+      "application": 2,
+      "application_reasoning": 2,
+      "calculation": 2,
+      "clarification_edge_case": 1,
+      "comparison": 5,
+      "conceptual_comparison": 3,
+      "conceptual_explanation": 2,
+      "conditional_reasoning": 1,
+      "decision_reasoning": 1,
+      "definition": 1,
+      "definition_comparison": 1,
+      "example_explanation": 1,
+      "follow_up_definition": 1,
+      "formula_interpretation": 2,
+      "misconception_check": 4,
+      "parameter_reasoning": 1,
+      "procedure": 3,
+      "prompt_injection_robustness": 1,
+      "statistical_reasoning": 1,
+      "visual_formula_interpretation": 1,
+      "why_and_method": 1,
+      "why_question": 6
+    },
+    "questions_by_family": {
+      "application_and_transfer": 4,
+      "calculation": 2,
+      "comparison": 8,
+      "conceptual_explanation": 3,
+      "contextual_follow_up": 2,
+      "definition": 2,
+      "formula_and_visual_interpretation": 3,
+      "misconception_and_edge_case": 5,
+      "procedure_and_algorithm": 7,
+      "reasoning": 11,
+      "robustness": 1
+    },
+    "questions_by_context_dependency": {
+      "asr_affected_follow_up": 1,
+      "elliptical_follow_up": 5,
+      "explicit_follow_up": 17,
+      "history_dependent": 1,
+      "pronoun_and_history": 3,
+      "retrieval_dependent": 1,
+      "standalone": 16,
+      "visual_deictic": 4
+    },
+    "questions_by_retrieval_condition": {
+      "injected": 1,
+      "irrelevant": 1,
+      "missing": 2,
+      "partial": 4,
+      "relevant": 40
+    }
+  },
+  "source_sha256": {
+    "classification_underpinnings": "e7bb814fdeca9c3204b921824d10ed85a9f30db27c7532e3cc9007333af5ac6f",
+    "decision_trees": "2e3dd2afa19e3b8f8e8c62966a5f076f5b5a06849b30afd085cea3c3ecd88a18",
+    "naive_bayes": "5de50252ef5338513260047ee48d0719610ffcf836d5c192dc634fc406d89772",
+    "clustering": "f9c6a06642a95b9d5f351e93da0ed5fb4b2aa2848e99a75254aa2454c2cf5577",
+    "silhouette_replacement": "e13a7d110b31f5eb57fa0c13ad4add69451a77ee2d310847b9ab6eebc4d0b349",
+    "feature_selection": "abbca6be56fb98108914ea6364bf438e1ea0a52f6fb5e5803b037548a3f23799",
+    "evaluation_basics": "5f5389a66060a75e8afe31879840f4145db6ab68cb4df734566bbbe2f92c2bce",
+    "best_model": "021b4bd601f27b2712ca27cb567390c0051022e390f204a590e772f2355b67cc"
+  }
+}

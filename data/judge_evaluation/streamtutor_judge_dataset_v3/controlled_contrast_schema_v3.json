@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://streamtutor.local/schemas/controlled-contrast-v3.json",
+  "title": "StreamTutor controlled contrast v3",
+  "type": "object",
+  "required": [
+    "dataset_id",
+    "dataset_version",
+    "contrast_id",
+    "target_dimension",
+    "question_id",
+    "control_statement",
+    "answer_a",
+    "answer_b",
+    "preferred_answer",
+    "expected_reason",
+    "conversation_history",
+    "user_utterance",
+    "canonical_question",
+    "reference_answer",
+    "retrieval",
+    "annotation_status",
+    "required_pairwise_protocol"
+  ],
+  "properties": {
+    "dataset_id": {
+      "const": "streamtutor-llm-judge-evaluation-v3"
+    },
+    "dataset_version": {
+      "const": "3.0.0"
+    },
+    "contrast_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target_dimension": {
+      "enum": [
+        "correctness",
+        "groundedness",
+        "completeness",
+        "clarity",
+        "pedagogy",
+        "learner_appropriateness",
+        "conversational_context"
+      ]
+    },
+    "question_id": {
+      "type": "string"
+    },
+    "control_statement": {
+      "type": "string",
+      "minLength": 1
+    },
+    "answer_a": {
+      "type": "string",
+      "minLength": 1
+    },
+    "answer_b": {
+      "type": "string",
+      "minLength": 1
+    },
+    "preferred_answer": {
+      "enum": [
+        "a",
+        "b"
+      ]
+    },
+    "expected_reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "conversation_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "role",
+          "content"
+        ],
+        "properties": {
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ]
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "user_utterance": {
+      "type": "string",
+      "minLength": 1
+    },
+    "canonical_question": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reference_answer": {
+      "type": "string",
+      "minLength": 1
+    },
+    "retrieval": {
+      "type": "object",
+      "required": [
+        "condition",
+        "context",
+        "source"
+      ],
+      "properties": {
+        "condition": {
+          "enum": [
+            "relevant",
+            "partial",
+            "irrelevant",
+            "missing",
+            "injected"
+          ]
+        },
+        "context": {
+          "type": "string"
+        },
+        "source": {
+          "type": "object",
+          "required": [
+            "deck_id",
+            "filename",
+            "pages",
+            "evidence_summary"
+          ],
+          "properties": {
+            "deck_id": {
+              "type": "string"
+            },
+            "filename": {
+              "type": "string"
+            },
+            "pages": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "evidence_summary": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "annotation_status": {
+      "type": "string"
+    },
+    "required_pairwise_protocol": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}
