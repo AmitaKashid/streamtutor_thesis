@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://streamtutor.local/schemas/question-v3.json",
+  "title": "StreamTutor judge question turn v3",
+  "type": "object",
+  "required": [
+    "dataset_id",
+    "dataset_version",
+    "question_id",
+    "conversation_id",
+    "turn_index",
+    "split",
+    "course_unit",
+    "question_type",
+    "question_family",
+    "context_dependency",
+    "speech_features",
+    "conversation_history",
+    "user_utterance",
+    "canonical_question",
+    "learner_level",
+    "teaching_style",
+    "retrieval",
+    "reference_answer",
+    "reference_key_points"
+  ],
+  "properties": {
+    "dataset_id": {
+      "const": "streamtutor-llm-judge-evaluation-v3"
+    },
+    "dataset_version": {
+      "const": "3.0.0"
+    },
+    "question_id": {
+      "type": "string",
+      "pattern": "^conv-[0-9]{2}-t[0-9]{2}$"
+    },
+    "conversation_id": {
+      "type": "string",
+      "pattern": "^conv-[0-9]{2}$"
+    },
+    "turn_index": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3
+    },
+    "split": {
+      "enum": [
+        "calibration",
+        "selection",
+        "robustness"
+      ]
+    },
+    "course_unit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "question_type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "question_family": {
+      "type": "string",
+      "minLength": 1
+    },
+    "context_dependency": {
+      "type": "string",
+      "minLength": 1
+    },
+    "speech_features": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "conversation_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "role",
+          "content"
+        ],
+        "properties": {
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ]
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "user_utterance": {
+      "type": "string",
+      "minLength": 1
+    },
+    "canonical_question": {
+      "type": "string",
+      "minLength": 1
+    },
+    "learner_level": {
+      "type": "string",
+      "minLength": 1
+    },
+    "teaching_style": {
+      "type": "string",
+      "minLength": 1
+    },
+    "retrieval": {
+      "type": "object",
+      "required": [
+        "condition",
+        "context",
+        "source"
+      ],
+      "properties": {
+        "condition": {
+          "enum": [
+            "relevant",
+            "partial",
+            "irrelevant",
+            "missing",
+            "injected"
+          ]
+        },
+        "context": {
+          "type": "string"
+        },
+        "source": {
+          "type": "object",
+          "required": [
+            "deck_id",
+            "filename",
+            "pages",
+            "evidence_summary"
+          ],
+          "properties": {
+            "deck_id": {
+              "type": "string"
+            },
+            "filename": {
+              "type": "string"
+            },
+            "pages": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "evidence_summary": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "reference_answer": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reference_key_points": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "additionalProperties": false
+}

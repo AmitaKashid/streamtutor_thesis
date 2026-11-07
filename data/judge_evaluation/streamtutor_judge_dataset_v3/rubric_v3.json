@@ -1,0 +1,114 @@
+{
+  "rubric_id": "streamtutor-rubric-v3",
+  "version": "3.0.0",
+  "scale": {
+    "type": "ordinal",
+    "minimum": 1,
+    "maximum": 5,
+    "global_interpretation": {
+      "1": "Critical failure: fundamentally wrong, non-responsive, or harmful to learning.",
+      "2": "Major weaknesses: substantial correction or restructuring is required.",
+      "3": "Mixed/adequate: core idea is present but there are noticeable errors or omissions.",
+      "4": "Good: correct and useful with only minor limitations.",
+      "5": "Excellent: fully satisfies the dimension with no meaningful defect."
+    }
+  },
+  "dimensions": {
+    "correctness": {
+      "question": "Are the claims, reasoning, formulas, and calculations correct for the course material?",
+      "anchors": {
+        "1": "Central claim or calculation is wrong and would create a major misconception.",
+        "2": "Several important errors, or one serious error, remain despite some correct content.",
+        "3": "Main idea is broadly right but at least one meaningful limitation or error is present.",
+        "4": "Substantively correct with at most a small imprecision that does not change the conclusion.",
+        "5": "All material claims and reasoning are correct and appropriately qualified."
+      }
+    },
+    "groundedness": {
+      "question": "Are answer claims supported by the usable retrieved course evidence and free of fabricated attribution?",
+      "applicability": "Use N/A when no usable retrieved evidence was supplied; do not punish the tutor for retrieval failure.",
+      "anchors": {
+        "1": "Contradicts the evidence or fabricates evidence/source support.",
+        "2": "Multiple important claims are unsupported or overstate what the evidence establishes.",
+        "3": "Core claim is supported but some meaningful details are weakly supported.",
+        "4": "Claims are supported with only a minor attribution or scope issue.",
+        "5": "Every material claim is traceable to the supplied usable evidence."
+      }
+    },
+    "completeness": {
+      "question": "Does the answer cover the essential points needed for this specific turn without substituting irrelevant detail?",
+      "anchors": {
+        "1": "Does not address the requested task or omits nearly all essential content.",
+        "2": "Omits one or more indispensable elements, making the answer seriously incomplete.",
+        "3": "Covers the central idea but omits a meaningful qualifier, step, or requested component.",
+        "4": "Covers all essentials; a small useful detail could still be added.",
+        "5": "Covers exactly the necessary content at the appropriate depth and remains focused."
+      }
+    },
+    "clarity": {
+      "question": "Is the explanation concise, coherent, unambiguous, and easy to follow in spoken interaction?",
+      "anchors": {
+        "1": "Incomprehensible or internally incoherent.",
+        "2": "Difficult to follow because of poor structure, unexplained notation, or severe verbosity.",
+        "3": "Understandable but contains noticeable ambiguity, awkward structure, or unnecessary complexity.",
+        "4": "Clear and well structured with only a minor wording issue.",
+        "5": "Exceptionally clear, concise, and naturally speakable."
+      }
+    },
+    "pedagogy": {
+      "question": "Does the response help the learner build understanding using the requested teaching style?",
+      "anchors": {
+        "1": "Pedagogically counterproductive; reinforces a misconception or gives an answer without usable explanation.",
+        "2": "Provides little learning support or disregards the requested teaching style.",
+        "3": "Some explanation is useful but scaffolding, example, or guiding step is weak.",
+        "4": "Supports learning effectively with a suitable explanation or question.",
+        "5": "Uses precise scaffolding, an apt example/check, and the requested style without unnecessary verbosity."
+      }
+    },
+    "learner_appropriateness": {
+      "question": "Is the depth, terminology, and assumed knowledge appropriate for the stated learner level?",
+      "anchors": {
+        "1": "Severely mismatched to the learner; unusably advanced, patronizing, or misleadingly simplified.",
+        "2": "Substantial mismatch in terminology, abstraction, pace, or assumed prerequisites.",
+        "3": "Generally usable but some explanation is too advanced, too basic, or poorly paced.",
+        "4": "Well matched with only a minor level mismatch.",
+        "5": "Precisely calibrated to the stated learner level and immediate need."
+      }
+    },
+    "conversational_context": {
+      "question": "Does the answer correctly resolve follow-ups, pronouns, ellipsis, corrections, and references to earlier turns or visible material?",
+      "anchors": {
+        "1": "Answers the wrong referent/topic or invents a referent when clarification is required.",
+        "2": "Partly recognizes the context but resolves a key reference incorrectly.",
+        "3": "Resolves the main intent but misses a contextual nuance or correction.",
+        "4": "Uses the conversation correctly with only a small continuity issue.",
+        "5": "Seamlessly resolves all relevant history, deixis, ellipsis, and corrections."
+      }
+    },
+    "retrieval_relevance": {
+      "separate_from_answer_quality": true,
+      "question": "How useful is the retrieved material for answering this turn?",
+      "applicability": "Use N/A only when retrieval is intentionally disabled. Missing retrieval when retrieval is expected receives 1.",
+      "anchors": {
+        "1": "Missing or unrelated to the information need.",
+        "2": "Mostly irrelevant, misleading, or contaminated by unsafe/instructional text.",
+        "3": "Partly relevant but missing an essential fact or containing substantial distractors.",
+        "4": "Relevant and sufficient with minor noise or redundancy.",
+        "5": "Directly relevant, sufficient, and focused on the question."
+      }
+    }
+  },
+  "critical_errors": [
+    "major_factual_error",
+    "major_reasoning_or_calculation_error",
+    "fabricated_or_unsupported_evidence",
+    "fails_to_answer_question",
+    "fails_to_resolve_required_conversation_context",
+    "unjustified_refusal_or_empty_answer",
+    "follows_untrusted_instruction_in_retrieved_context"
+  ],
+  "aggregation": {
+    "rule": "Do not collapse dimensions into an arbitrary weighted total for model selection.",
+    "binary_verdict": "revise if a critical error is present, correctness <= 2, applicable groundedness <= 2, or conversational_context <= 2 for a context-dependent turn; otherwise accept."
+  }
+}
