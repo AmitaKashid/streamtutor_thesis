@@ -5,10 +5,13 @@ from stt import vad_segmenter
 from stt import stt_backends
 import asyncio
 import json
+import os
 import queue
 import threading
 import time
 import re
+import uuid
+import importlib
 from types import SimpleNamespace
 from concurrent.futures import ThreadPoolExecutor
 
@@ -21,6 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 
 from judge.judge import LocalLLMJudge
+from judge.runtime_bridge_v1 import DeliveryCoordinator
 from llm.llmcli.providers.remote_http import RemoteHTTPProvider
 
 
@@ -94,16 +98,38 @@ REMOTE_MODEL_URLS = {
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
-ENABLE_RUNTIME_EVALUATION = True
+# The legacy JSON judge is retained for compatibility, but must not be
+# simultaneously enabled with the scalar-v3 bridge.
+ENABLE_RUNTIME_EVALUATION = (
+    os.environ.get("LLMTUTOR_RUNTIME_JUDGE", "0") == "1"
+    and os.environ.get("LLMTUTOR_JUDGE_V1", "0") != "1"
+)
+_runtime_v1_bridge: DeliveryCoordinator | None = None
 
-JUDGE_SERVER_URL = "http://127.0.0.1:8004"
+
+def install_runtime_judge_v1(bridge: DeliveryCoordinator) -> None:
+    """Explicitly inject a validated scalar-v3 adapter-backed coordinator.
+
+    Do not enable until scalar prompt/parser parity has been tested against
+    the frozen v3 runner. The integration is intentionally fail-closed.
+    """
+    global _runtime_v1_bridge, _runtime_evaluator
+    _runtime_v1_bridge = bridge
+    if _runtime_evaluator is not None:
+        _runtime_evaluator.shutdown(wait=True, timeout=5.0)
+        _runtime_evaluator = None
+
+
+JUDGE_SERVER_URL = os.environ.get("LLMTUTOR_JUDGE_URL", "http://127.0.0.1:8004")
 
 JUDGE_REFERENCE_PATH = (
     PROJECT_ROOT / "judge" / "test_samples.json"
 )
 
 JUDGE_OUTPUT_PATH = (
-    PROJECT_ROOT / "judge_outputs" / "runtime_results.jsonl"
+    Path(os.environ["LLMTUTOR_JUDGE_OUTPUT"])
+    if "LLMTUTOR_JUDGE_OUTPUT" in os.environ
+    else PROJECT_ROOT / "judge_outputs" / "runtime_results.jsonl"
 )
 
 TTS_BACKEND_NAME = "kokoro"  # or "chatterbox"
@@ -170,8 +196,8 @@ _tts_engine_cache: dict[str, BaseTTSEngine] = {}
 
 
 def build_runtime_evaluator() -> LocalLLMJudge | None:
-    if not ENABLE_RUNTIME_EVALUATION:
-        print("[JUDGE] Runtime evaluation disabled")
+    if not ENABLE_RUNTIME_EVALUATION or os.environ.get("LLMTUTOR_JUDGE_V1", "0") == "1":
+        print("[JUDGE] Legacy JSON evaluator disabled")
         return None
 
     judge_provider = RemoteHTTPProvider(
@@ -201,8 +227,38 @@ def build_runtime_evaluator() -> LocalLLMJudge | None:
 
 _runtime_evaluator = build_runtime_evaluator()
 
+@app.on_event("startup")
+def startup_runtime_v1():
+    """Opt-in ONLY. Do not activate with an unverified scalar-v3 adapter."""
+    if os.environ.get("LLMTUTOR_JUDGE_V1", "0") != "1":
+        return
+    spec = os.environ.get("LLMTUTOR_JUDGE_V3_EVALUATOR", "")
+    rubric = os.environ.get("LLMTUTOR_JUDGE_RUBRIC_SHA256", "")
+    prompt = os.environ.get("LLMTUTOR_JUDGE_PROMPT_SHA256", "")
+    if not (spec and ":" in spec and len(rubric) == 64 and len(prompt) == 64):
+        print("[JUDGE V1] Disabled: verified scalar-v3 adapter and SHA256 hashes required")
+        return
+    try:
+        from judge.runtime_service_v1 import RuntimeJudgeService
+        module_name, factory_name = spec.split(":", 1)
+        evaluator = getattr(importlib.import_module(module_name), factory_name)()
+        if not callable(evaluator):
+            raise TypeError("judge evaluator factory must return a callable")
+        spool = PROJECT_ROOT / "judge_outputs" / "runtime_v1_spool.sqlite"
+        service = RuntimeJudgeService(spool, evaluator, max_attempts=1)
+        bridge = DeliveryCoordinator(service, rubric_sha256=rubric,
+                                     judge_prompt_sha256=prompt,
+                                     judge_model_id="fare_20b_q4")
+        install_runtime_judge_v1(bridge)
+        print("[JUDGE V1] Delivery-gated scalar judge enabled")
+    except Exception as exc:
+        print(f"[JUDGE V1] Disabled after adapter initialization error: {type(exc).__name__}: {exc}")
+
+
 @app.on_event("shutdown")
 def shutdown_runtime_evaluator():
+    if _runtime_v1_bridge is not None:
+        _runtime_v1_bridge.service.close(timeout=5.0)
     if _runtime_evaluator is not None:
         print("[JUDGE] Flushing pending evaluations...")
         _runtime_evaluator.shutdown(
@@ -716,6 +772,7 @@ def list_tts_speakers():
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
+    evaluation_conversation_id = f"web-{uuid.uuid4().hex}"
 
     llm, tts_engine, retriever, stt_backend = ensure_components()
     loop = asyncio.get_running_loop()
@@ -737,6 +794,47 @@ async def websocket_endpoint(websocket: WebSocket):
     # Browser audio can still be playing after backend finished sending chunks.
     # Keep this active until frontend confirms playback has actually finished.
     browser_audio_active = threading.Event()
+    # Browser acknowledgements are bound to an immutable turn ID.  The
+    # acknowledgement may arrive before the generation thread submits its
+    # candidate, so record terminal events independently of pending candidates.
+    pending_judge_turn_ids: set[str] = set()
+    terminal_playback: dict[str, bool] = {}
+    pending_judge_lock = threading.RLock()
+
+    def candidate_ready_for_judge(candidate, response_status: str):
+        bridge = _runtime_v1_bridge
+        if bridge is None or not bridge.candidate_ready(candidate):
+            return
+        if response_status != "completed" or not candidate.generation_completed:
+            bridge.acknowledge(candidate.turn_id, delivered=False)
+            return
+        with pending_judge_lock:
+            outcome = terminal_playback.get(candidate.turn_id)
+            if outcome is None:
+                pending_judge_turn_ids.add(candidate.turn_id)
+        if outcome is not None:
+            bridge.acknowledge(candidate.turn_id, delivered=outcome)
+
+    def resolve_browser_delivery(turn_id: str, *, delivered: bool):
+        if not isinstance(turn_id, str) or not turn_id:
+            return
+        bridge = _runtime_v1_bridge
+        with pending_judge_lock:
+            # Failure is sticky; a late success cannot undo interruption.
+            if terminal_playback.get(turn_id) is False:
+                delivered = False
+            terminal_playback[turn_id] = delivered
+            had_candidate = turn_id in pending_judge_turn_ids
+            pending_judge_turn_ids.discard(turn_id)
+        if bridge is not None and had_candidate:
+            bridge.acknowledge(turn_id, delivered=delivered)
+
+    def cancel_all_browser_delivery():
+        with pending_judge_lock:
+            ids = list(pending_judge_turn_ids)
+        for turn_id in ids:
+            resolve_browser_delivery(turn_id, delivered=False)
+
 
     active_config = {}
     args = build_pipeline_args(active_config)
@@ -783,11 +881,19 @@ async def websocket_endpoint(websocket: WebSocket):
         thread_name_prefix="partial-stt",
     )
 
+    # Latest server-started turn for attaching identity to out-of-band audio_stop.
+    active_audio_turn_id: str | None = None
+
     async def ws_send(payload: dict):
         await websocket.send_text(json.dumps(payload))
 
     def emit_from_thread(payload: dict):
+        nonlocal active_audio_turn_id
         msg_type = payload.get("type")
+        if msg_type == "tutor_turn_started":
+            active_audio_turn_id = payload.get("turn_id")
+        if msg_type == "audio_stop" and not payload.get("turn_id"):
+            payload = {**payload, "turn_id": active_audio_turn_id}
 
         if msg_type == "audio_chunk":
             browser_audio_active.set()
@@ -1061,7 +1167,7 @@ async def websocket_endpoint(websocket: WebSocket):
         request_llm = llm
         request_tts_engine = tts_engine
         request_retriever = retriever
-        request_judge = _runtime_evaluator
+        request_judge = None if _runtime_v1_bridge is not None else _runtime_evaluator
 
         def _job():
             # Only one pipeline may use the shared playback state at a time.
@@ -1081,6 +1187,8 @@ async def websocket_endpoint(websocket: WebSocket):
                         playback=playback,
                         pipeline_active=pipeline_active,
                         judge=request_judge,
+                        evaluation_sink=candidate_ready_for_judge,
+                        conversation_id=evaluation_conversation_id,
                         conversation_memory=conversation_memory,
                         tts_busy=tts_busy,
                         drain_after_tts=drain_after_tts,
@@ -1288,11 +1396,12 @@ async def websocket_endpoint(websocket: WebSocket):
                     drain_after_tts.clear()
 
                     playback.stop_now()
+                    cancel_all_browser_delivery()
                     browser_audio_active.clear()
                     segmenter.reset()
                     interrupt_segmenter.reset()
 
-                    emit_from_thread({"type": "audio_stop"})
+                    emit_from_thread({"type": "audio_stop", "turn_id": active_audio_turn_id})
                     emit_from_thread({"type": "stage", "value": "transcribing"})
 
                     # If the pre-roll is already long enough, schedule the first live
@@ -1481,6 +1590,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 })
 
                 playback.stop_now()
+                cancel_all_browser_delivery()
                 segmenter.reset()
                 interrupt_segmenter.reset()
                 drain_after_tts.set()
@@ -1515,7 +1625,13 @@ async def websocket_endpoint(websocket: WebSocket):
                     q_frames.put((frame_np.tobytes(), time.monotonic()))
                 continue
             
-            if action == "browser_audio_finished":
+            if action in {"browser_audio_finished", "browser_audio_interrupted"}:
+                turn_id = data.get("turn_id")
+                if not isinstance(turn_id, str) or not turn_id:
+                    continue
+                resolve_browser_delivery(
+                    turn_id, delivered=action == "browser_audio_finished"
+                )
                 browser_audio_active.clear()
                 reset_tts_probe_state()
 
@@ -1531,6 +1647,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
             if action == "interrupt":
                 playback.stop_now()
+                cancel_all_browser_delivery()
                 browser_audio_active.clear()
                 drain_after_tts.set()
 
@@ -1544,7 +1661,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 segmenter.reset()
                 interrupt_segmenter.reset()
 
-                await ws_send({"type": "audio_stop"})
+                await ws_send({"type": "audio_stop", "turn_id": active_audio_turn_id})
                 await ws_send({"type": "stage", "value": "interrupted"})
                 continue
 
@@ -1566,6 +1683,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
     finally:
         session_closed.set()
+        cancel_all_browser_delivery()
         mic_enabled.clear()
         playback.stop_now()
         reset_partial_state()

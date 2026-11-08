@@ -106,9 +106,10 @@ type ServerEvent =
   | { type: "transcript_final"; text: string }
   | { type: "user_transcript_final"; text: string }
   | { type: "barge_in_accepted"; text: string }
-  | { type: "audio_chunk"; data: string; sample_rate: number; channels: number }
-  | { type: "audio_done" }
-  | { type: "audio_stop" }
+  | { type: "tutor_turn_started"; turn_id: string }
+  | { type: "audio_chunk"; turn_id: string; data: string; sample_rate: number; channels: number }
+  | { type: "audio_done"; turn_id: string }
+  | { type: "audio_stop"; turn_id: string }
   | {
     type: "config_applied";
     data: {
@@ -310,6 +311,24 @@ function useTutorSocket(url: string) {
   const playbackQueueRef = useRef<AudioBuffer[]>([]);
   const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const browserAudioPlayingRef = useRef(false);
+  const playbackTurnIdRef = useRef<string | null>(null);
+  const streamEndedRef = useRef(false);
+  const receivedAudioRef = useRef(false);
+  const notifiedTurnIdsRef = useRef(new Set<string>());
+  const stoppedRef = useRef(false);
+
+  // Report only when audio_done has arrived AND all browser buffers ended.
+  const maybeAcknowledgePlayback = () => {
+    const turnId = playbackTurnIdRef.current;
+    if (!turnId || stoppedRef.current || !streamEndedRef.current ||
+        !receivedAudioRef.current || currentSourceRef.current ||
+        playbackQueueRef.current.length > 0 ||
+        notifiedTurnIdsRef.current.has(turnId)) return;
+    const ws = wsRef.current;
+    if (ws?.readyState !== WebSocket.OPEN) return;
+    notifiedTurnIdsRef.current.add(turnId);
+    ws.send(JSON.stringify({ action: "browser_audio_finished", turn_id: turnId }));
+  };
 
   const getPlaybackContext = () => {
     if (!playbackContextRef.current) {
@@ -377,31 +396,29 @@ function useTutorSocket(url: string) {
       } else {
         browserAudioPlayingRef.current = false;
 
-        const ws = wsRef.current;
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ action: "browser_audio_finished" }));
-        }
+        maybeAcknowledgePlayback();
       }
     };
 
     source.start();
   };
 
-  const stopBrowserAudio = () => {
+  const stopBrowserAudio = (turnId?: string) => {
+    const id = turnId || playbackTurnIdRef.current;
+    stoppedRef.current = true;
+    streamEndedRef.current = false;
     playbackQueueRef.current = [];
-
-    try {
-      currentSourceRef.current?.stop();
-    } catch {
-      // ignore browser audio stop errors
-    }
-
+    const source = currentSourceRef.current;
+    // Remove before calling stop; stop() triggers onended asynchronously.
     currentSourceRef.current = null;
+    if (source) source.onended = null;
+    try { source?.stop(); } catch { /* already stopped */ }
     browserAudioPlayingRef.current = false;
-
     const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ action: "browser_audio_finished" }));
+    if (id && !notifiedTurnIdsRef.current.has(id) &&
+        ws?.readyState === WebSocket.OPEN) {
+      notifiedTurnIdsRef.current.add(id);
+      ws.send(JSON.stringify({ action: "browser_audio_interrupted", turn_id: id }));
     }
   };
 
@@ -449,7 +466,22 @@ function useTutorSocket(url: string) {
             console.log("Backend applied config:", data.data);
             return;
           }
+          if (data.type === "tutor_turn_started") {
+            // Never mark the prior turn delivered when a new turn starts.
+            if (playbackTurnIdRef.current &&
+                playbackTurnIdRef.current !== data.turn_id) {
+              stopBrowserAudio(playbackTurnIdRef.current);
+            }
+            playbackTurnIdRef.current = data.turn_id;
+            streamEndedRef.current = false;
+            receivedAudioRef.current = false;
+            stoppedRef.current = false;
+            return;
+          }
+
           if (data.type === "audio_chunk") {
+            if (data.turn_id !== playbackTurnIdRef.current || stoppedRef.current) return;
+            receivedAudioRef.current = true;
             const buffer = decodePcm16Base64(
               data.data,
               data.sample_rate,
@@ -462,14 +494,14 @@ function useTutorSocket(url: string) {
           }
 
           if (data.type === "audio_stop") {
-            stopBrowserAudio();
+            if (data.turn_id === playbackTurnIdRef.current) stopBrowserAudio(data.turn_id);
             return;
           }
 
           if (data.type === "audio_done") {
-            if (playbackQueueRef.current.length === 0 && !currentSourceRef.current) {
-              browserAudioPlayingRef.current = false;
-            }
+            if (data.turn_id !== playbackTurnIdRef.current || stoppedRef.current) return;
+            streamEndedRef.current = true;
+            maybeAcknowledgePlayback();
             return;
           }
           if (data.type === "stage") {
