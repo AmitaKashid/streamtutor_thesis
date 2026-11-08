@@ -19,6 +19,7 @@ from judge.scalar_evaluator_v3 import (
     ANSWER_DIMENSIONS,
     RETRIEVAL_DIMENSION,
     ScalarJudgeV3,
+    _validate_history,
     load_frozen_rubric,
 )
 
@@ -470,6 +471,8 @@ def _git_commit() -> str | None:
 def _manifest_identity(manifest: Mapping[str, Any]) -> dict[str, Any]:
     keys = (
         "runner_version",
+        "run_id",
+        "git_commit",
         "dataset",
         "split",
         "judge_configuration",
@@ -480,11 +483,70 @@ def _manifest_identity(manifest: Mapping[str, Any]) -> dict[str, Any]:
     return {key: manifest.get(key) for key in keys}
 
 
+def validate_record_provenance(
+    record: Mapping[str, Any], manifest: Mapping[str, Any], input_hash: str
+) -> None:
+    dataset = manifest["dataset"]
+    config = manifest["judge_configuration"]
+    fields = {
+        "dataset_id": dataset["id"],
+        "dataset_version": dataset["version"],
+        "rubric_sha256": dataset["rubric_sha256"],
+        "input_sha256": input_hash,
+        "judge_configuration": {
+            **{key: config[key] for key in ("model_id", "quantization", "hardware")},
+            "declared_generation_config": config["generation"],
+        },
+    }
+    for key, expected in fields.items():
+        if record.get(key) != expected:
+            raise ValueError(f"{record.get('evaluation_id')}: mismatched {key}")
+    judgment = record.get("judge")
+    if not isinstance(judgment, Mapping) or judgment.get("status") not in ("valid", "invalid", "error"):
+        raise ValueError(f"{record.get('evaluation_id')}: missing or invalid judge status")
+
+
+def validate_scalar_records(
+    records: Sequence[Mapping[str, Any]],
+    tasks: Sequence[EvaluationTask],
+    manifest: Mapping[str, Any],
+) -> set[str]:
+    expected = {task.evaluation_id: task for task in tasks}
+    seen: set[str] = set()
+    for row in records:
+        evaluation_id = row.get("evaluation_id")
+        if not isinstance(evaluation_id, str) or evaluation_id not in expected:
+            raise ValueError(f"Evaluation ID is outside the frozen task plan: {evaluation_id!r}")
+        if evaluation_id in seen:
+            raise ValueError(f"Duplicate evaluation ID: {evaluation_id}")
+        task = expected[evaluation_id]
+        for key in ("question_id", "response_id", "dimension"):
+            if key not in row or row[key] != getattr(task, key):
+                raise ValueError(f"{evaluation_id}: mismatched {key}")
+        inputs = {
+            **task.common_inputs,
+            "answer": task.answer,
+            "conversation_history": _validate_history(task.common_inputs["conversation_history"]),
+        }
+        if row.get("inputs") != inputs or row.get("case_metadata") != task.case_metadata:
+            raise ValueError(f"{evaluation_id}: inputs or case metadata differ from the frozen plan")
+        validate_record_provenance(row, manifest, _canonical_hash(inputs))
+        seen.add(evaluation_id)
+    return seen
+
+
+def _make_remote_provider(**kwargs):
+    from llm.llmcli.providers.remote_http import RemoteHTTPProvider
+
+    return RemoteHTTPProvider(**kwargs)
+
+
 def prepare_run(
     *,
     run_dir: Path,
     manifest: dict[str, Any],
     resume: bool,
+    tasks: Sequence[EvaluationTask] | None = None,
 ) -> dict[str, Any]:
     manifest_path = run_dir / "manifest.json"
     predictions_path = run_dir / "predictions.jsonl"
@@ -502,7 +564,11 @@ def prepare_run(
             raise ValueError(
                 "Resume configuration does not match existing manifest"
             )
+        if tasks is not None:
+            validate_scalar_records(_load_prediction_records(predictions_path), tasks, existing)
         manifest = existing
+        for key in ("finished_utc", "completed_utc", "runner_error"):
+            manifest.pop(key, None)
         manifest["status"] = "running"
         manifest["resumed_utc"] = _utc_now()
     else:
@@ -641,6 +707,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         run_dir=run_dir,
         manifest=manifest,
         resume=args.resume,
+        tasks=tasks,
     )
     manifest_path = run_dir / "manifest.json"
 
@@ -662,9 +729,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Run directory: {run_dir}")
         return 0
 
-    from llm.llmcli.providers.remote_http import RemoteHTTPProvider
-
-    provider = RemoteHTTPProvider(
+    provider = _make_remote_provider(
         base_url=args.base_url,
         connect_timeout=args.connect_timeout,
         read_timeout=args.read_timeout,
@@ -725,14 +790,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         _write_json_atomic(manifest_path, manifest)
         raise
 
-    records = _load_prediction_records(predictions_path)
+    try:
+        records = _load_prediction_records(predictions_path)
+        recorded_ids = validate_scalar_records(records, tasks, manifest)
+    except (OSError, ValueError) as exc:
+        manifest.update(status="runner_error", finished_utc=_utc_now())
+        manifest["runner_error"] = {"type": type(exc).__name__, "message": str(exc)}
+        _write_json_atomic(manifest_path, manifest)
+        raise
     summary = summarize_predictions(records)
     summary.update(
         {
             "run_id": run_id,
             "split": args.split,
             "planned_evaluation_count": len(tasks),
-            "complete": len(records) == len(tasks),
+            "complete": recorded_ids == set(task_ids),
         }
     )
     _write_json_atomic(run_dir / "summary.json", summary)

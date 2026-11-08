@@ -23,10 +23,12 @@ from judge.pairwise_contract_v3 import (
 from judge.run_judge_benchmark_v3 import (
     DEFAULT_DATASET_DIR,
     _canonical_hash,
+    _make_remote_provider,
     _read_json,
     _read_jsonl,
     _validate_run_id,
     _write_json_atomic,
+    validate_record_provenance,
     verify_dataset,
 )
 from judge.scalar_evaluator_v3 import (
@@ -316,20 +318,7 @@ class PairwiseJudgeV3:
             "rubric_id": self.rubric.rubric_id,
             "rubric_version": self.rubric.version,
             "rubric_sha256": self.rubric.sha256,
-            "input_sha256": _canonical_hash(
-                {
-                    "conversation_history": list(
-                        task.conversation_history
-                    ),
-                    "target_dimension": task.target_dimension,
-                    "order": task.order,
-                    "user_utterance": task.user_utterance,
-                    "reference_answer": task.reference_answer,
-                    "context": task.context,
-                    "candidate_1": task.candidate_1,
-                    "candidate_2": task.candidate_2,
-                }
-            ),
+            "input_sha256": _pairwise_input_hash(task),
             "judge_configuration": {
                 "model_id": self.model_id,
                 "quantization": self.quantization,
@@ -471,9 +460,23 @@ def build_contrast_tasks(
     return tasks
 
 
+def _pairwise_input_hash(task: ContrastTask) -> str:
+    return _canonical_hash({
+        "conversation_history": list(task.conversation_history),
+        "target_dimension": task.target_dimension,
+        "order": task.order,
+        "user_utterance": task.user_utterance,
+        "reference_answer": task.reference_answer,
+        "context": task.context,
+        "candidate_1": task.candidate_1,
+        "candidate_2": task.candidate_2,
+    })
+
+
 def validate_pairwise_records(
     records: Sequence[Mapping[str, Any]],
     tasks: Sequence[ContrastTask],
+    manifest: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     expected = {task.evaluation_id: task for task in tasks}
     actual_ids: set[str] = set()
@@ -504,6 +507,8 @@ def validate_pairwise_records(
                     f"Record {evaluation_id} has mismatched {field}: "
                     f"{record.get(field)!r} != {expected_value!r}"
                 )
+        if manifest is not None:
+            validate_record_provenance(record, manifest, _pairwise_input_hash(task))
     expected_ids = set(expected)
     return {
         "expected_count": len(expected_ids),
@@ -749,6 +754,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "quantization": args.quantization,
             "hardware": args.hardware,
             "generation": generation,
+            "connect_timeout": args.connect_timeout,
+            "read_timeout": args.read_timeout,
         },
         "git_commit": _git_commit(),
         "planned_evaluation_count": len(tasks),
@@ -757,6 +764,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     }
     identity_keys = (
         "runner_version",
+        "run_id",
+        "git_commit",
         "dataset",
         "judge_configuration",
         "planned_evaluation_count",
@@ -769,7 +778,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         existing = _read_json(manifest_path)
         if any(existing.get(key) != manifest.get(key) for key in identity_keys):
             raise ValueError("Resume configuration differs from manifest")
+        records = _read_jsonl(predictions_path) if predictions_path.exists() else []
+        validate_pairwise_records(records, tasks, existing)
         manifest = existing
+        for key in ("finished_utc", "runner_error"):
+            manifest.pop(key, None)
         manifest["status"] = "running"
         manifest["resumed_utc"] = _utc_now()
     else:
@@ -794,9 +807,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(plan, indent=2))
         return 0
 
-    from llm.llmcli.providers.remote_http import RemoteHTTPProvider
-
-    provider = RemoteHTTPProvider(
+    provider = _make_remote_provider(
         base_url=args.base_url,
         connect_timeout=args.connect_timeout,
         read_timeout=args.read_timeout,
@@ -821,7 +832,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     existing_records = (
         _read_jsonl(predictions_path) if predictions_path.exists() else []
     )
-    validate_pairwise_records(existing_records, tasks)
+    validate_pairwise_records(existing_records, tasks, manifest)
     remaining = [
         task for task in tasks if task.evaluation_id not in evaluator.logged_ids
     ]
@@ -844,7 +855,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _write_json_atomic(manifest_path, manifest)
         raise
     records = _read_jsonl(predictions_path)
-    completion = validate_pairwise_records(records, tasks)
+    completion = validate_pairwise_records(records, tasks, manifest)
     summary = summarize_contrasts(records, contrasts)
     summary["complete"] = completion["complete"]
     summary["missing_evaluation_ids"] = completion["missing_ids"]
