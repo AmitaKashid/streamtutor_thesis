@@ -720,6 +720,8 @@ def run_llm_tts_pipeline(
     playback: PlaybackControl,
     pipeline_active: threading.Event,
     judge: LocalLLMJudge | None,
+    evaluation_sink=None,
+    conversation_id: str | None = None,
     conversation_memory: ConversationMemory | None = None,
     event_cb=None,
     tts_busy: threading.Event | None = None,
@@ -735,6 +737,7 @@ def run_llm_tts_pipeline(
       interruption_text + last spoken chunks -> (RAG) -> prompt -> LLM -> TTS
     """
     evaluation_turn_id = f"tutor-{uuid.uuid4().hex}"
+    evaluation_conversation_id = conversation_id or f"cli-{uuid.uuid4().hex}"
     norm = transcript.lower().strip(" .!?")
     playback.reset_interrupt()
     playback.clear_interrupt_snapshot()
@@ -752,6 +755,7 @@ def run_llm_tts_pipeline(
         except Exception:
             pass
 
+    emit({"type": "tutor_turn_started", "turn_id": evaluation_turn_id})
     print_effective_config(args)
     emit({
         "type": "config_applied",
@@ -845,6 +849,14 @@ def run_llm_tts_pipeline(
     # Retrieval still uses only the current question/interruption text.
     # The LLM receives the growing conversation history + current question.
     raw_current_user_query = final_user_query
+    history_snapshot = ()
+    if conversation_memory is not None and getattr(args, "conversation_context", False):
+        with conversation_memory._lock:
+            previous_turns = [dict(t) for t in conversation_memory.turns]
+        history_snapshot = tuple(msg for turn in previous_turns for msg in (
+            {"role": "user", "content": turn["user"]},
+            {"role": "assistant", "content": turn["assistant"]},
+        ))
 
     if getattr(args, "conversation_context", False) and conversation_memory is not None:
         memory_stats_before = conversation_memory.stats()
@@ -910,6 +922,30 @@ def run_llm_tts_pipeline(
         print("\n[FINAL PROMPT SENT TO LLM]")
         print(llm_prompt)
         print("")
+
+    def offer_evaluation_candidate(answer: str, *, generation_completed: bool, response_status: str):
+        if evaluation_sink is None or not answer.strip():
+            return
+        # Evaluation of browser audio is deferred until an independent
+        # browser_audio_finished acknowledgement; no scoring here.
+        from judge.runtime_bridge_v1 import Candidate
+        from judge.runtime_contract_v1 import digest_text
+        candidate = Candidate(
+            turn_id=evaluation_turn_id,
+            conversation_id=evaluation_conversation_id,
+            question=transcript,
+            answer=answer,
+            history=history_snapshot,
+            rag_context=context,  # Exact RAG context passed to the prompt.
+            tutor_model=str(getattr(args, "llm_model", "unknown")),
+            tutor_prompt_sha256=digest_text(llm_prompt),
+            teaching_style=str(args.teaching_style),
+            generation_completed=generation_completed,
+        )
+        try:
+            evaluation_sink(candidate, response_status)
+        except Exception as exc:
+            print(f"[JUDGE V1] Candidate submission failed: {type(exc).__name__}: {exc}")
 
     # ---------------- Mode A: batch ----------------
     if args.mode == "batch":
@@ -1057,6 +1093,7 @@ def run_llm_tts_pipeline(
                     f"[JUDGE] Batch evaluation queued: {task_id} "
                     f"(status={response_status})"
                 )
+        offer_evaluation_candidate(answer, generation_completed=True, response_status=response_status)
         total_time = total_timer.elapsed()
         print(f"[TTS Proc Latency] {tts_proc_time:.3f}s  (playback excluded)")
         print(
@@ -1328,6 +1365,7 @@ def run_llm_tts_pipeline(
 
             emit({
                 "type": "audio_chunk",
+                "turn_id": evaluation_turn_id,
                 "data": audio_b64,
                 "sample_rate": sr,
                 "channels": channels,
@@ -1461,7 +1499,14 @@ def run_llm_tts_pipeline(
                     smoothed = crossfader.process(wav_np)
                     enqueue_audio_chunk(smoothed, sr, chunk_text=chunk_text)
                     text_chunk_queue.task_done()
-            tts_thread = threading.Thread(target=tts_worker, daemon=True)
+            def run_tts_worker():
+                try:
+                    tts_worker()
+                except Exception as exc:
+                    emit({"type": "tts_worker_error", "message": type(exc).__name__})
+                    raise
+
+            tts_thread = threading.Thread(target=run_tts_worker, daemon=True)
             tts_thread.start()
             for ev in text_event_iter():
                 if playback.interrupted.is_set():
@@ -1525,9 +1570,9 @@ def run_llm_tts_pipeline(
         # audio_done  = normal completion; browser can finish/clear playback state.
         if getattr(args, "browser_audio", False):
             if playback.interrupted.is_set():
-                emit({"type": "audio_stop"})
+                emit({"type": "audio_stop", "turn_id": evaluation_turn_id})
             else:
-                emit({"type": "audio_done"})
+                emit({"type": "audio_done", "turn_id": evaluation_turn_id})
 
         playback.mark_tts_stopped()
         playback.clear_audio_out()
@@ -1611,7 +1656,13 @@ def run_llm_tts_pipeline(
         print(f"  response status   : {response_status}")
 
     # Queue evaluation after playback status has been captured.
+    offer_evaluation_candidate(
+        final_answer, generation_completed=llm_stream_done_t is not None, response_status=response_status
+    )
+    enqueue_seconds = None
+    task_id = None
     if final_answer and judge is not None:
+        enqueue_started = perf_counter()
         task_id = judge.judge_and_log_async(
             turn_id=evaluation_turn_id,
             question=transcript,
@@ -1631,6 +1682,7 @@ def run_llm_tts_pipeline(
             ),
         )
 
+        enqueue_seconds = perf_counter() - enqueue_started
         if task_id is None:
             print(
                 "[JUDGE] Evaluation was not queued:",
@@ -1643,6 +1695,17 @@ def run_llm_tts_pipeline(
             )
     
 
+
+    emit({
+        "type": "judge_submission",
+        "data": {
+            "turn_id": evaluation_turn_id,
+            "response_status": response_status,
+            "judge_available": judge is not None,
+            "task_id": task_id,
+            "enqueue_seconds": enqueue_seconds,
+        },
+    })
 
     print("\n[STREAM COUNTS]")
     print(f"  text chunks                    : {chunks_count}")
