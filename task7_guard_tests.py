@@ -1,6 +1,6 @@
 import unittest
 from pathlib import Path
-from task7_run_block_guarded import validate_live_block
+from task7_run_block import validate_live_block
 
 class GuardTests(unittest.TestCase):
     def setUp(self):

@@ -1,0 +1,32 @@
+{
+  "schema_version": "task8-evidence-manifest-v1",
+  "status": "PARTIAL_VERIFICATION",
+  "source_revision": "82e5a9898cf1826803594731cc842aba73973738",
+  "source_branch": "judge-selection-sprint",
+  "archive": {
+    "filename": "task7_evidence_20261108.zip",
+    "sha256": "47426b73fad70fdc6635159d2e89d33b290219a8a72d975acf74581f8fc0b20f",
+    "integrity": "PASS",
+    "record_filter": "Only root task7/bXX_{off|on}.{events,results,manifest} files; exclude task7/failed_attempts; SQLite evaluations filtered by the 44 accepted ON turn_ids"
+  },
+  "frozen_runtime_schedule_sha256": "ab55fe73a9531d692f316c68e025b6d668b13a5839a6962d4ddb121921f6e016",
+  "frozen_reference_registry_sha256": "d15f4593451f35542144ba60905686026ee68aa311bfa3b192c7c3df0de64155",
+  "verified_observations": {"browser_trials": 88, "distinct_questions": 11, "repetitions_per_question_per_condition": 4, "off_trials": 44, "on_trials": 44, "fare_valid_dimension_evaluations": 308},
+  "qualification_gates": {
+    "task7_file_integrity": "PASS",
+    "task7_latency_reproduction": "PASS",
+    "fare_runtime_acceptance_for_tested_workload": "PASS",
+    "fresh_clone_dependency_integration": "NOT_VERIFIED",
+    "selection_across_four_judges": "NOT_REAUDITED_IN_THIS_PACKAGE",
+    "a30_hardware_qualification": "NOT_VERIFIED",
+    "independent_human_validation": "NOT_VERIFIED",
+    "production_readiness": "NOT_VERIFIED"
+  },
+  "caveats": [
+    "Archive snapshot and repository commit were not generated atomically; record association is based on user-provided revision and frozen manifest hashes.",
+    "Bootstrap confidence intervals are implementation- and seed-dependent; do not claim numerical identity with previous runs using a different resampling seed.",
+    "The observed OFF/ON associations do not establish causality or equivalence; output lengths and shared GPU resource conditions may confound completion latency.",
+    "Task 7 used typed questions and does not assess microphone/STT latency.",
+    "No independent human judge validity labels were collected."
+  ]
+}
