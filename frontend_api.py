@@ -773,6 +773,7 @@ def list_tts_speakers():
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     evaluation_conversation_id = f"web-{uuid.uuid4().hex}"
+    from task6_telemetry import record_event as task6_record_event
 
     llm, tts_engine, retriever, stt_backend = ensure_components()
     loop = asyncio.get_running_loop()
@@ -890,6 +891,8 @@ async def websocket_endpoint(websocket: WebSocket):
     def emit_from_thread(payload: dict):
         nonlocal active_audio_turn_id
         msg_type = payload.get("type")
+        # TASK6_TELEMETRY_V1: measurement only; never blocks speech on judge inference.
+        task6_record_event(evaluation_conversation_id, msg_type, payload.get("turn_id"))
         if msg_type == "tutor_turn_started":
             active_audio_turn_id = payload.get("turn_id")
         if msg_type == "audio_stop" and not payload.get("turn_id"):
@@ -1629,6 +1632,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 turn_id = data.get("turn_id")
                 if not isinstance(turn_id, str) or not turn_id:
                     continue
+                task6_record_event(evaluation_conversation_id, action, turn_id)
                 resolve_browser_delivery(
                     turn_id, delivered=action == "browser_audio_finished"
                 )
