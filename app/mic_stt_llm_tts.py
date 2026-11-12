@@ -1447,6 +1447,7 @@ def run_llm_tts_pipeline(
 
             
     response_status = "completed"
+    pipeline_failed = False
     if tts_enabled:
         set_tts_state(True, tts_busy, drain_after_tts)
     try:
@@ -1544,15 +1545,26 @@ def run_llm_tts_pipeline(
 
             tts_thread = threading.Thread(target=run_tts_worker, daemon=True)
             tts_thread.start()
-            for ev in text_event_iter():
-                if playback.interrupted.is_set():
-                    break
-                if ev.text:
-                    if first_chunk_sent_to_tts_t is None:
-                        first_chunk_sent_to_tts_t = perf_counter()
-                    text_chunk_queue.put(ev.text.strip())
-            text_chunk_queue.put(None)
-            tts_thread.join()
+            try:
+                for ev in text_event_iter():
+                    if playback.interrupted.is_set():
+                        break
+                    if ev.text:
+                        if first_chunk_sent_to_tts_t is None:
+                            first_chunk_sent_to_tts_t = perf_counter()
+                        text_chunk_queue.put(ev.text.strip())
+            except BaseException:
+                # Do not synthesize pending text after the LLM stream fails.
+                while True:
+                    try:
+                        text_chunk_queue.get_nowait()
+                        text_chunk_queue.task_done()
+                    except queue.Empty:
+                        break
+                raise
+            finally:
+                text_chunk_queue.put(None)
+                tts_thread.join()
 
             if audio_out is not None and args.speak and (not playback_started) and audio_prebuffer:
                 playback.mark_tts_started()
@@ -1584,12 +1596,19 @@ def run_llm_tts_pipeline(
                 audio_out.wait_done()
                 audio_out.stop()
 
+    except BaseException:
+        pipeline_failed = True
+        raise
     finally:
         response_status = (
-            "interrupted"
-            if playback.interrupted.is_set()
-            else "completed"
+            "failed" if pipeline_failed else
+            "interrupted" if playback.interrupted.is_set() else "completed"
         )
+        if pipeline_failed and audio_out is not None:
+            try:
+                audio_out.stop()
+            except Exception:
+                pass
 
         spoken_chunks_at_stop = (
             playback.get_interrupt_snapshot()
@@ -1605,10 +1624,12 @@ def run_llm_tts_pipeline(
         # audio_stop  = interruption/manual stop; browser should clear queued audio.
         # audio_done  = normal completion; browser can finish/clear playback state.
         if tts_enabled and getattr(args, "browser_audio", False):
-            if playback.interrupted.is_set():
+            if pipeline_failed or playback.interrupted.is_set():
                 emit({"type": "audio_stop", "turn_id": evaluation_turn_id})
             else:
                 emit({"type": "audio_done", "turn_id": evaluation_turn_id})
+        elif pipeline_failed and not tts_enabled:
+            emit({"type": "text_interrupted", "turn_id": evaluation_turn_id})
 
         playback.mark_tts_stopped()
         playback.clear_audio_out()
