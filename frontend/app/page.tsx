@@ -689,28 +689,23 @@ function useTutorSocket(url: string) {
           if (data.type === "metrics") {
             const incoming = data.data;
 
-            setMetrics((prev) => {
-              const merged: MetricState = {
-                ...prev,
-                ...incoming,
-                stt:
-                  incoming.stt !== undefined && incoming.stt > 0
-                    ? incoming.stt
-                    : prev.stt,
-              };
-
-              currentTurnMetricsRef.current = {
-                ...currentTurnMetricsRef.current,
-                ...incoming,
-                stt:
-                  incoming.stt !== undefined && incoming.stt > 0
-                    ? incoming.stt
-                    : currentTurnMetricsRef.current.stt ?? prev.stt,
-              };
-
-
-              return merged;
-            });
+            // Record immediately: assistant_done can arrive before React runs
+            // a queued state updater, especially for short text-only turns.
+            const previousTurn = currentTurnMetricsRef.current;
+            currentTurnMetricsRef.current = {
+              ...previousTurn,
+              ...incoming,
+              stt: incoming.stt !== undefined && incoming.stt > 0
+                ? incoming.stt
+                : previousTurn.stt,
+            };
+            setMetrics((prev) => ({
+              ...prev,
+              ...incoming,
+              stt: incoming.stt !== undefined && incoming.stt > 0
+                ? incoming.stt
+                : prev.stt,
+            }));
 
             return;
           }

@@ -1,5 +1,6 @@
 """Streaming client for a llama-server configured for separated reasoning."""
 import json
+import os
 import time
 import requests
 from app.thinking_stream import ThinkingStream, ThinkingStreamError, ReasoningNotObserved
@@ -29,10 +30,20 @@ class ThinkingHTTPProvider:
             except ReasoningNotObserved:
                 if attempt:
                     raise
+                print('[THINKING RETRY] no separated reasoning; retrying once', flush=True)
 
     def _stream_once(self, prompt):
         body = {'messages': [{'role': 'system', 'content': 'You are a concise AI tutor for data mining. Use provided course context when available. Answer clearly and briefly.'}, {'role': 'user', 'content': prompt}], 'stream': True, 'max_tokens': 8192, 'temperature': 1.0, 'top_p': 0.95, 'chat_template_kwargs': {'enable_thinking': True}, 'reasoning_format': 'deepseek'}
+        budget = os.environ.get('LLMTUTOR_THINKING_BUDGET', '').strip()
+        if budget:
+            if not budget.isdigit() or int(budget) < 1:
+                raise ValueError('LLMTUTOR_THINKING_BUDGET must be a positive integer')
+            body['reasoning_budget_tokens'] = int(budget)
         parser = ThinkingStream()
+        started = time.perf_counter()
+        first_reasoning = None
+        first_content = None
+        reasoning_chars = 0
         with requests.post(self.base_url + '/v1/chat/completions', json=body, stream=True, timeout=(3, self.read_timeout)) as response:
             response.raise_for_status()
             # SSE is UTF-8. Decode bytes explicitly; requests otherwise may
@@ -47,9 +58,28 @@ class ThinkingHTTPProvider:
                 data = line[5:].strip()
                 if data == '[DONE]':
                     parser.end()
+                    def seconds(value):
+                        return 'N/A' if value is None else f'{value:.3f}s'
+                    print(f'[THINKING TIMING] first_reasoning={seconds(first_reasoning)} '
+                          f'first_answer={seconds(first_content)} '
+                          f'reasoning_chars={reasoning_chars} '
+                          f'budget={budget or "server-default"} '
+                          f'total={time.perf_counter() - started:.3f}s', flush=True)
                     return
                 try:
-                    value = parser.feed(json.loads(data))
+                    event = json.loads(data)
+                    choices = event.get('choices') or []
+                    if choices:
+                        delta = choices[0].get('delta') or {}
+                        reasoning = delta.get('reasoning_content') or ''
+                        content = delta.get('content') or ''
+                        if isinstance(reasoning, str) and reasoning:
+                            reasoning_chars += len(reasoning)
+                            if first_reasoning is None:
+                                first_reasoning = time.perf_counter() - started
+                        if isinstance(content, str) and content and first_content is None:
+                            first_content = time.perf_counter() - started
+                    value = parser.feed(event)
                 except (ValueError, TypeError, KeyError) as exc:
                     raise ThinkingStreamError('Invalid model-server stream') from exc
                 if value:
