@@ -714,7 +714,7 @@ def run_llm_tts_pipeline(
     stt_time: float,
     total_timer: Timer,
     llm: LlamaCppProvider,
-    tts_engine: BaseTTSEngine,
+    tts_engine: BaseTTSEngine | None,
     retriever: RagRetriever | None,
     args,
     playback: PlaybackControl,
@@ -755,7 +755,9 @@ def run_llm_tts_pipeline(
         except Exception:
             pass
 
-    emit({"type": "tutor_turn_started", "turn_id": evaluation_turn_id})
+    tts_enabled = getattr(args, "tts_enabled", True)
+    emit({"type": "tutor_turn_started", "turn_id": evaluation_turn_id,
+          "delivery_mode": "audio" if tts_enabled else "text"})
     print_effective_config(args)
     emit({
         "type": "config_applied",
@@ -943,7 +945,19 @@ def run_llm_tts_pipeline(
             generation_completed=generation_completed,
         )
         try:
-            evaluation_sink(candidate, response_status)
+            legacy_payload = None
+            if not tts_enabled and judge is not None and response_status == "completed":
+                legacy_payload = dict(
+                    turn_id=evaluation_turn_id, question=transcript, answer=answer,
+                    teaching_style=args.teaching_style, context=context, retrieved_ids=retrieved_ids,
+                    interruption_text=interruption_text, interrupted_chunks=interrupted_chunks or [],
+                    metadata=build_evaluation_metadata(args, retriever=retriever, retrieved_ids=retrieved_ids,
+                        response_status=response_status, interruption_text=interruption_text, playback=playback),
+                )
+            if legacy_payload is None:
+                evaluation_sink(candidate, response_status)
+            else:
+                evaluation_sink(candidate, response_status, legacy_payload)
         except Exception as exc:
             print(f"[JUDGE V1] Candidate submission failed: {type(exc).__name__}: {exc}")
 
@@ -1199,7 +1213,12 @@ def run_llm_tts_pipeline(
                         dots_thread.join(timeout=0.2)
                         dots_stopped = True
 
+                if playback.interrupted.is_set():
+                    return
                 full_answer_parts.append(piece)
+                if not tts_enabled:
+                    emit({"type": "llm_chunk", "text": piece})
+                    continue
 
                 for chunk_text in chunker.feed([piece]):
                     if playback.interrupted.is_set():
@@ -1247,7 +1266,12 @@ def run_llm_tts_pipeline(
                         dots_stop_event.set()
                         dots_thread.join(timeout=0.2)
                         dots_stopped = True
+                if playback.interrupted.is_set():
+                    return
                 full_answer_parts.append(piece)
+                if not tts_enabled:
+                    emit({"type": "llm_chunk", "text": piece})
+                    continue
 
                 for chunk_text in chunker.feed([piece]):
                     if playback.interrupted.is_set():
@@ -1274,6 +1298,8 @@ def run_llm_tts_pipeline(
 
             llm_stream_done_t = perf_counter()
 
+        if not tts_enabled:
+            return
         if not playback.interrupted.is_set():
             last = chunker.flush()
             if last:
@@ -1415,9 +1441,13 @@ def run_llm_tts_pipeline(
 
             
     response_status = "completed"
-    set_tts_state(True, tts_busy, drain_after_tts)
+    if tts_enabled:
+        set_tts_state(True, tts_busy, drain_after_tts)
     try:
-        if args.mode == "stream-input":
+        if not tts_enabled:
+            for _ in text_event_iter():
+                pass
+        elif args.mode == "stream-input":
             if not tts_engine.supports_streaming_input():
                 raise RuntimeError(
                     "True stream-input mode requires a streaming TTS backend. "
@@ -1568,7 +1598,7 @@ def run_llm_tts_pipeline(
         # Tell the browser what happened to the audio stream.
         # audio_stop  = interruption/manual stop; browser should clear queued audio.
         # audio_done  = normal completion; browser can finish/clear playback state.
-        if getattr(args, "browser_audio", False):
+        if tts_enabled and getattr(args, "browser_audio", False):
             if playback.interrupted.is_set():
                 emit({"type": "audio_stop", "turn_id": evaluation_turn_id})
             else:
@@ -1578,7 +1608,8 @@ def run_llm_tts_pipeline(
         playback.clear_audio_out()
         playback.clear_chunk_tracking()
         pipeline_active.clear()
-        set_tts_state(False, tts_busy, drain_after_tts)
+        if tts_enabled:
+            set_tts_state(False, tts_busy, drain_after_tts)
 
     total_time = total_timer.elapsed()
 
@@ -1608,7 +1639,7 @@ def run_llm_tts_pipeline(
             "ttsFirstChunk": tts_actual_start_latency,
 
             "llmTotal": llm_time,
-            "ttsTotal": tts_proc_total,
+            "ttsTotal": tts_proc_total if tts_enabled else None,
             "total": total_time,
             "firstAudio": ttfa,
         },
@@ -1626,6 +1657,8 @@ def run_llm_tts_pipeline(
     ):
         if response_status == "completed":
             memory_answer = final_answer
+        elif not tts_enabled:
+            memory_answer = "[The assistant response was interrupted after this partial text:]\n" + final_answer
         else:
             last_spoken_context = "\n".join(
                 spoken_chunks_at_stop
@@ -1659,9 +1692,12 @@ def run_llm_tts_pipeline(
     offer_evaluation_candidate(
         final_answer, generation_completed=llm_stream_done_t is not None, response_status=response_status
     )
+    if not tts_enabled and response_status == "completed" and llm_stream_done_t is not None and final_answer:
+        emit({"type": "text_complete", "turn_id": evaluation_turn_id, "text": final_answer})
     enqueue_seconds = None
     task_id = None
-    if final_answer and judge is not None:
+    # Legacy text evaluation is submitted by the delivery acknowledgement handler.
+    if final_answer and judge is not None and tts_enabled:
         enqueue_started = perf_counter()
         task_id = judge.judge_and_log_async(
             turn_id=evaluation_turn_id,
@@ -1743,7 +1779,7 @@ def run_llm_tts_pipeline(
     
     print("\n[PIPELINE TOTALS]")
     print(f"  RAG latency                     : {rag_time:.3f} s")
-    print(f"  TTS processing total            : {tts_proc_total:.3f} s")
+    print(f"  TTS processing total            : {tts_proc_total:.3f} s" if tts_enabled else "  TTS processing total            : N/A")
     print(f"  End-to-end total                : {total_time:.3f} s")
 
 # ---------------- Main ----------------

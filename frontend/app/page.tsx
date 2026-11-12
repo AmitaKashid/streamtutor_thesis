@@ -86,6 +86,7 @@ interface TutorConfig {
   sttBackend: string;
   llmModel: string;
   ttsBackend: string;
+  ttsEnabled: boolean;
   qwen3Speaker: string;
   qwen3Language: string;
   ragEnabled: boolean;
@@ -106,9 +107,11 @@ type ServerEvent =
   | { type: "transcript_final"; text: string }
   | { type: "user_transcript_final"; text: string }
   | { type: "barge_in_accepted"; text: string }
-  | { type: "tutor_turn_started"; turn_id: string }
+  | { type: "tutor_turn_started"; turn_id: string; delivery_mode: "audio" | "text" }
+  | { type: "text_interrupted"; turn_id: string }
   | { type: "audio_chunk"; turn_id: string; data: string; sample_rate: number; channels: number }
   | { type: "audio_done"; turn_id: string }
+  | { type: "text_complete"; turn_id: string; text: string }
   | { type: "audio_stop"; turn_id: string }
   | {
     type: "config_applied";
@@ -203,6 +206,7 @@ const defaultConfig: TutorConfig = {
   sttBackend: "faster-whisper",
   llmModel: "llama3_8b_q4",
   ttsBackend: "kokoro",
+  ttsEnabled: true,
   qwen3Speaker: "Vivian",
   qwen3Language: "en",
   ragEnabled: true,
@@ -279,6 +283,7 @@ function toBackendConfig(config: TutorConfig) {
     stt_backend: config.sttBackend,
     llm_model: config.llmModel,
     tts_backend: config.ttsBackend,
+    tts_enabled: config.ttsEnabled,
     qwen3_speaker: config.qwen3Speaker,
     qwen3_language: config.qwen3Language,
     rag: config.ragEnabled,
@@ -300,6 +305,8 @@ function useTutorSocket(url: string) {
   const [metrics, setMetrics] = useState<MetricState>({});
   const [metricHistory, setMetricHistory] = useState<TurnMetricRecord[]>([]);
   const [capturedText, setCapturedText] = useState("");
+  const textDeliveryNotifiedRef = useRef(new Set<string>());
+  const [pendingTextDelivery, setPendingTextDelivery] = useState<{turnId: string; messageId: string; text: string} | null>(null);
   const [partialText, setPartialText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -316,6 +323,17 @@ function useTutorSocket(url: string) {
   const receivedAudioRef = useRef(false);
   const notifiedTurnIdsRef = useRef(new Set<string>());
   const stoppedRef = useRef(false);
+  const deliveryModeRef = useRef<"audio" | "text">("audio");
+
+  // Acknowledge only after React has committed the exact completed answer.
+  useEffect(() => {
+    if (!pendingTextDelivery) return;
+    const rendered = messages.some((m) => m.id === pendingTextDelivery.messageId && m.text === pendingTextDelivery.text && !m.streaming);
+    const ws = wsRef.current;
+    if (!rendered || !ws || ws.readyState !== WebSocket.OPEN || stoppedRef.current || playbackTurnIdRef.current !== pendingTextDelivery.turnId || textDeliveryNotifiedRef.current.has(pendingTextDelivery.turnId)) return;
+    textDeliveryNotifiedRef.current.add(pendingTextDelivery.turnId);
+    ws.send(JSON.stringify({ action: "browser_text_finished", turn_id: pendingTextDelivery.turnId }));
+  }, [messages, pendingTextDelivery]);
 
   // Report only when audio_done has arrived AND all browser buffers ended.
   const maybeAcknowledgePlayback = () => {
@@ -415,7 +433,7 @@ function useTutorSocket(url: string) {
     try { source?.stop(); } catch { /* already stopped */ }
     browserAudioPlayingRef.current = false;
     const ws = wsRef.current;
-    if (id && !notifiedTurnIdsRef.current.has(id) &&
+    if (deliveryModeRef.current === "audio" && id && !notifiedTurnIdsRef.current.has(id) &&
         ws?.readyState === WebSocket.OPEN) {
       notifiedTurnIdsRef.current.add(id);
       ws.send(JSON.stringify({ action: "browser_audio_interrupted", turn_id: id }));
@@ -473,9 +491,30 @@ function useTutorSocket(url: string) {
               stopBrowserAudio(playbackTurnIdRef.current);
             }
             playbackTurnIdRef.current = data.turn_id;
+            deliveryModeRef.current = data.delivery_mode;
             streamEndedRef.current = false;
             receivedAudioRef.current = false;
             stoppedRef.current = false;
+            return;
+          }
+
+          if (data.type === "text_interrupted") {
+            if (data.turn_id === playbackTurnIdRef.current) stoppedRef.current = true;
+            return;
+          }
+
+          if (data.type === "text_complete") {
+            if (data.turn_id !== playbackTurnIdRef.current || stoppedRef.current) return;
+            const messageId = `assistant_${data.turn_id}`;
+            setMessages((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              const message: Message = { id: messageId, role: "assistant", text: data.text, streaming: false, timestamp: last?.timestamp || new Date().toLocaleTimeString() };
+              if (last?.role === "assistant" && last.streaming) next[next.length - 1] = message;
+              else next.push(message);
+              return next;
+            });
+            setPendingTextDelivery({ turnId: data.turn_id, messageId, text: data.text });
             return;
           }
 
@@ -909,6 +948,7 @@ function ConfigPanel({
       </div>
 
       <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(8, minmax(0, 1fr))" }}>
+        <Toggle label="Speech output" helper="Applies next turn" checked={config.ttsEnabled} onChange={(ttsEnabled) => setConfig((c) => ({ ...c, ttsEnabled }))} />
         <SelectField
           label="STT backend"
           value={config.sttBackend}
@@ -973,7 +1013,7 @@ function ConfigPanel({
       </div>
 
       {/* Qwen3-TTS speaker and language — shown only when qwen3 is selected */}
-      {config.ttsBackend === "qwen3" && (
+      {config.ttsEnabled && config.ttsBackend === "qwen3" && (
         <div className="mt-3 grid grid-cols-2 gap-3 rounded-2xl border border-violet-100 bg-violet-50/60 p-3">
           <div className="col-span-2 flex items-center gap-2 text-xs font-semibold text-violet-600">
             <Volume2 className="h-3.5 w-3.5" />
@@ -1629,6 +1669,12 @@ export default function Page() {
 
   const [listening, setListening] = useState(false);
   const [config, setConfig] = useState<TutorConfig>(defaultConfig);
+
+  useEffect(() => {
+    if (connected) send({ action: "set_speech_output", tts_enabled: config.ttsEnabled });
+  // send reads the current socket; changing the switch affects only the next turn.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, config.ttsEnabled]);
 
   const shouldKeepListeningRef = useRef(false);
   const assistantOutputActiveRef = useRef(false);
