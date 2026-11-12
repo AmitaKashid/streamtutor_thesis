@@ -93,6 +93,8 @@ REMOTE_MODEL_URLS = {
     "gemma4_26b_q3": "http://127.0.0.1:8002",
 
     "qwen3_5_9b_q6": "http://127.0.0.1:8003",
+    "gemma4_e4b_thinking": "http://127.0.0.1:8005",
+    "bonsai2_9b_thinking": "http://127.0.0.1:8006",
 }
 
 
