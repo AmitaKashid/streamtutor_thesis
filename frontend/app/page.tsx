@@ -133,6 +133,8 @@ const LLM_MODELS = [
   { value: "llama3_8b_q4", label: "Llama 3 8B Q4" },
   { value: "gemma4_26b_q3", label: "Gemma 4 26B Q3" },
   { value: "qwen3_5_9b_q6", label: "Qwen 3.5 9B Q6" },
+  { value: "gemma4_e4b_thinking", label: "Gemma 4 E4B Thinking" },
+  { value: "bonsai2_9b_thinking", label: "Bonsai 2 9B Thinking" },
 ];
 
 const TTS_BACKENDS = [
@@ -193,14 +195,7 @@ const stageLabel: Record<Stage, string> = {
   error: "Error",
 };
 
-const stageOrder: Stage[] = [
-  "listening",
-  "transcribing",
-  "retrieving",
-  "thinking",
-  "streaming",
-  "speaking",
-];
+
 
 const defaultConfig: TutorConfig = {
   sttBackend: "faster-whisper",
@@ -948,7 +943,6 @@ function ConfigPanel({
       </div>
 
       <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(8, minmax(0, 1fr))" }}>
-        <Toggle label="Speech output" helper="Applies next turn" checked={config.ttsEnabled} onChange={(ttsEnabled) => setConfig((c) => ({ ...c, ttsEnabled }))} />
         <SelectField
           label="STT backend"
           value={config.sttBackend}
@@ -1038,26 +1032,6 @@ function ConfigPanel({
 }
 
 
-function StagePills({ stage }: { stage: Stage }) {
-  return (
-    <div className="flex flex-wrap gap-2">
-      {stageOrder.map((item) => (
-        <div
-          key={item}
-          className={classNames(
-            "rounded-full border px-3 py-1 text-xs font-semibold transition",
-            stage === item
-              ? "border-blue-200 bg-blue-600 text-white shadow-sm"
-              : "border-slate-200 bg-white text-slate-500",
-          )}
-        >
-          {stageLabel[item]}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === "user";
   return (
@@ -1136,12 +1110,16 @@ function ConversationPanel({
   partialText,
   capturedText,
   listening,
+  speechEnabled,
+  onSpeechChange,
   embedded = false,
 }: {
   messages: Message[];
   partialText: string;
   capturedText: string;
   listening: boolean;
+  speechEnabled: boolean;
+  onSpeechChange: (enabled: boolean) => void;
   embedded?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -1164,7 +1142,7 @@ function ConversationPanel({
       )}
     >
       <div className="border-b border-slate-100 px-6 py-4">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-sm font-semibold text-blue-700">
               <BookOpen className="h-4 w-4" /> Conversation
@@ -1173,7 +1151,22 @@ function ConversationPanel({
               Voice-first tutoring session
             </h2>
           </div>
-          <StagePills stage={listening ? "listening" : "idle"} />
+          <button
+            type="button"
+            role="switch"
+            aria-checked={speechEnabled}
+            onClick={() => onSpeechChange(!speechEnabled)}
+            className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2 text-left shadow-sm transition hover:border-blue-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          >
+            <Volume2 className="h-4 w-4 text-blue-600" aria-hidden="true" />
+            <span>
+              <span className="block text-sm font-semibold text-slate-800">Speech output</span>
+              <span className="block text-xs text-slate-500">Applies next turn</span>
+            </span>
+            <span aria-hidden="true" className={classNames("relative h-6 w-11 rounded-full transition", speechEnabled ? "bg-blue-600" : "bg-slate-300")}>
+              <span className={classNames("absolute top-1 h-4 w-4 rounded-full bg-white shadow transition", speechEnabled ? "left-6" : "left-1")} />
+            </span>
+          </button>
         </div>
       </div>
 
@@ -1994,6 +1987,8 @@ export default function Page() {
                   partialText={partialText}
                   capturedText={capturedText}
                   listening={listening}
+                  speechEnabled={config.ttsEnabled}
+                  onSpeechChange={(ttsEnabled) => setConfig((c) => ({ ...c, ttsEnabled }))}
                   embedded
                 />
 

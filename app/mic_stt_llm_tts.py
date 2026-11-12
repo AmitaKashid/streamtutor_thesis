@@ -203,6 +203,12 @@ def start_terminal_dots(message: str = "Preparing your explanation"):
 # ---------------- LLM ----------------
 def build_llm(args):
     if args.llm_backend == "remote":
+        if args.llm_model in {"gemma4_e4b_thinking", "bonsai2_9b_thinking"}:
+            from llm.llmcli.providers.thinking_http import ThinkingHTTPProvider
+            provider = ThinkingHTTPProvider(args.llm_server_url, args.llm_read_timeout)
+            if not provider.healthcheck():
+                raise RuntimeError(f"Remote LLM server not reachable at {args.llm_server_url}")
+            return provider
         if not args.llm_server_url:
             raise ValueError("--llm_server_url is required when --llm_backend remote")
 
