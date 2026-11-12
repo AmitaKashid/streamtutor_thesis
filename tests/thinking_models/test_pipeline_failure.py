@@ -20,7 +20,9 @@ def load_pipeline():
         'HALLUCINATION_PHRASES': set(), 'print_effective_config': lambda args: None,
         'effective_config_payload': lambda args: {}, 'compose_prompt': lambda **kw: kw['user_query'],
         'start_terminal_dots': lambda *a: (threading.Event(), types.SimpleNamespace(join=lambda **kw: None)),
-        'ProsodyChunkerConfig': lambda **kw: None, 'ProsodyChunker': lambda cfg: types.SimpleNamespace(),
+        'ProsodyChunkerConfig': lambda **kw: None,
+        'ProsodyChunker': lambda cfg: types.SimpleNamespace(feed=lambda parts: parts, flush=lambda: ''),
+        'StreamingTextChunk': lambda **kw: types.SimpleNamespace(**kw),
         'set_tts_state': lambda *a: None, 'Timer': lambda: types.SimpleNamespace(elapsed=lambda: 0.0),
     }
     exec(compile(ast.fix_missing_locations(module), '<pipeline-under-test>', 'exec'), env)
@@ -50,6 +52,43 @@ class PipelineFailureTest(unittest.TestCase):
         self.assertNotIn('text_complete', types_seen)
         self.assertIn('audio_stop' if tts_enabled else 'text_interrupted', types_seen)
         self.assertFalse(active.is_set())
+
+    def test_tts_worker_failure_does_not_complete_audio(self):
+        run = load_pipeline()
+        playback = Mock(); playback.interrupted = threading.Event()
+        llm = types.SimpleNamespace(stream=lambda prompt: iter(['A complete sentence.']))
+        class BrokenTTS:
+            def synthesize(self, **kwargs): raise RuntimeError('Kokoro returned no audio')
+        args = types.SimpleNamespace(min_words=1, tts_enabled=True, mode='stream', teaching_style='default',
+            chunk_first=80, chunk_mid=100, chunk_later=200, chunk_wait=1, browser_audio=True, voice_prompt=None)
+        events = []; active = threading.Event(); active.set()
+        with self.assertRaisesRegex(RuntimeError, 'TTS synthesis failed'):
+            run(transcript='test question', stt_time=0, total_timer=Mock(), llm=llm,
+                tts_engine=BrokenTTS(), retriever=None, args=args, playback=playback,
+                pipeline_active=active, judge=None, event_cb=events.append)
+        types_seen = [event['type'] for event in events]
+        self.assertIn('audio_stop', types_seen)
+        self.assertNotIn('audio_done', types_seen)
+        self.assertFalse(active.is_set())
+
+    def test_emoji_only_chunk_is_not_sent_to_tts(self):
+        run = load_pipeline()
+        playback = Mock(); playback.interrupted = threading.Event()
+        llm = types.SimpleNamespace(stream=lambda prompt: iter(['😊', 'A complete sentence.']))
+        sent = []
+        class TTS:
+            def synthesize(self, **kwargs):
+                sent.append(kwargs['text'])
+                raise RuntimeError('synthetic failure')
+        args = types.SimpleNamespace(min_words=1, tts_enabled=True, mode='stream', teaching_style='default',
+            chunk_first=80, chunk_mid=100, chunk_later=200, chunk_wait=1, browser_audio=True, voice_prompt=None)
+        events = []; active = threading.Event(); active.set()
+        with self.assertRaisesRegex(RuntimeError, 'TTS synthesis failed'):
+            run(transcript='test question', stt_time=0, total_timer=Mock(), llm=llm,
+                tts_engine=TTS(), retriever=None, args=args, playback=playback,
+                pipeline_active=active, judge=None, event_cb=events.append)
+        self.assertEqual(sent, ['A complete sentence.'])
+        self.assertTrue(any(e.get('type') == 'llm_chunk' and '😊' in e.get('text','') for e in events))
 
     def test_text_mode_failure_is_not_completed(self): self._check('stream', False)
     def test_stream_input_failure_is_not_completed(self): self._check('stream-input', True)

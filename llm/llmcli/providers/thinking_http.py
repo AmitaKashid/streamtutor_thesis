@@ -35,7 +35,13 @@ class ThinkingHTTPProvider:
         parser = ThinkingStream()
         with requests.post(self.base_url + '/v1/chat/completions', json=body, stream=True, timeout=(3, self.read_timeout)) as response:
             response.raise_for_status()
-            for line in response.iter_lines(decode_unicode=True):
+            # SSE is UTF-8. Decode bytes explicitly; requests otherwise may
+            # fall back to ISO-8859-1 when the server omits a charset.
+            for raw_line in response.iter_lines(decode_unicode=False):
+                try:
+                    line = raw_line.decode('utf-8')
+                except UnicodeDecodeError as exc:
+                    raise ThinkingStreamError('Invalid UTF-8 from model server') from exc
                 if not line or not line.startswith('data:'):
                     continue
                 data = line[5:].strip()

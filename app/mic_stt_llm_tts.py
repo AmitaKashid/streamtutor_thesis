@@ -1493,6 +1493,12 @@ def run_llm_tts_pipeline(
                         text_chunk_queue.task_done()
                         break
 
+                    # Keep emoji/punctuation in displayed text but do not send
+                    # a non-spoken-only chunk to speech synthesis.
+                    if not any(char.isalnum() for char in chunk_text):
+                        text_chunk_queue.task_done()
+                        continue
+
                     if first_tts_synth_start_t is None:
                         first_tts_synth_start_t = perf_counter()
 
@@ -1536,18 +1542,22 @@ def run_llm_tts_pipeline(
                     smoothed = crossfader.process(wav_np)
                     enqueue_audio_chunk(smoothed, sr, chunk_text=chunk_text)
                     text_chunk_queue.task_done()
+            tts_worker_errors = []
+            tts_worker_failed = threading.Event()
+
             def run_tts_worker():
                 try:
                     tts_worker()
                 except Exception as exc:
+                    tts_worker_errors.append(exc)
+                    tts_worker_failed.set()
                     emit({"type": "tts_worker_error", "message": type(exc).__name__})
-                    raise
 
             tts_thread = threading.Thread(target=run_tts_worker, daemon=True)
             tts_thread.start()
             try:
                 for ev in text_event_iter():
-                    if playback.interrupted.is_set():
+                    if playback.interrupted.is_set() or tts_worker_failed.is_set():
                         break
                     if ev.text:
                         if first_chunk_sent_to_tts_t is None:
@@ -1565,6 +1575,8 @@ def run_llm_tts_pipeline(
             finally:
                 text_chunk_queue.put(None)
                 tts_thread.join()
+            if tts_worker_errors:
+                raise RuntimeError("TTS synthesis failed") from tts_worker_errors[0]
 
             if audio_out is not None and args.speak and (not playback_started) and audio_prebuffer:
                 playback.mark_tts_started()
