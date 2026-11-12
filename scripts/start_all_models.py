@@ -21,6 +21,16 @@ KEY = Path.home() / '.ssh' / 'llmtutor_ed25519'
 USER = 'ovyj81af'
 LOGIN = 'sofja.urz.uni-magdeburg.de'
 
+# Slurm jobs and local ports are listed here for the final status report.
+SERVICES = (
+    ('Llama 3 8B', 'llmtutor_llama', 8000),
+    ('Gemma 4 26B', 'llmtutor_gemma', 8002),
+    ('Qwen 3.5 9B', 'llmtutor_qwen_llm', 8003),
+    ('FARE judge', 'llmtutor_judge', 8004),
+    ('Gemma 4 E4B Thinking', 'llmtutor_e4b', 8005),
+    ('Bonsai 2 9B Thinking', 'llmtutor_bonsai2', 8006),
+)
+
 
 def ssh(command: str) -> str:
     result = subprocess.run(['ssh', '-i', str(KEY), '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20',
@@ -75,6 +85,20 @@ def healthy(port):
         return False
 
 
+def print_service_summary():
+    """Report observed job status and endpoint health, without inferring identity."""
+    print('\n=== StreamTutor model and judge status ===', flush=True)
+    for label, name, port in SERVICES:
+        try:
+            rows = jobs(name)
+            job_info = f'{rows[0][0]} {rows[0][1]} node={rows[0][2]}' if rows else 'no active job'
+        except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+            job_info = f'job status unavailable ({exc})'
+        endpoint = 'healthy' if healthy(port) else 'unreachable'
+        print(f'{label}: {job_info}; localhost:{port} {endpoint}', flush=True)
+    print('Health confirms endpoint response only; it does not verify model identity.', flush=True)
+
+
 def port_free(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         try:
@@ -99,9 +123,14 @@ def main():
     legacy = ROOT / 'scripts' / 'start_full_llmtutor_stack.ps1'
     job_script = ROOT / 'scripts' / 'run_thinking_model.sbatch'
     if not legacy.is_file() or not job_script.is_file(): raise RuntimeError('Startup script or thinking-model Slurm script is missing')
+    print('=== StreamTutor full startup: five tutor models + one judge ===', flush=True)
+    print('Phase 1 starts Llama 3, Gemma 4 26B, Qwen 3.5 and the FARE judge.', flush=True)
+    print('Phase 2 starts or reuses Gemma 4 E4B Thinking and Bonsai 2 9B Thinking.', flush=True)
+    print('The older script reports only Phase 1; Phase 2 is shown separately below.', flush=True)
     if not args.reuse_stack:
         print('Starting your existing full-stack script. Its normal cleanup and job submission will run.', flush=True)
         subprocess.run(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(legacy)], cwd=str(ROOT), check=True)
+    print('\n=== Phase 2: thinking-model jobs and tunnels ===', flush=True)
     # Version the upload by its hash to avoid overwriting an existing remote script.
     import hashlib
     digest = hashlib.sha256(job_script.read_bytes()).hexdigest()[:12]
@@ -132,6 +161,7 @@ def main():
     deadline = time.monotonic() + 300
     while time.monotonic() < deadline:
         if all(healthy(item[1]) for item in pending):
+            print_service_summary()
             print('Thinking model endpoints are healthy. Open http://localhost:3000', flush=True)
             return
         if tunnel is not None and tunnel.poll() is not None:
