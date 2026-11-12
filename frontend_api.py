@@ -509,6 +509,7 @@ def build_pipeline_args(config: dict | None = None):
         # The backend should synthesize audio and send it to the browser.
         speak=False,
         browser_audio=True,
+        tts_enabled=config.get("tts_enabled", True) if isinstance(config.get("tts_enabled", True), bool) else True,
         tts_backend=tts_backend,
         qwen3_speaker=qwen3_speaker,
         qwen3_language=qwen3_language,
@@ -549,14 +550,6 @@ def ensure_components():
             #    )
             #] = _llm
             _llm = None
-
-        if _tts_engine is None:
-            backend = TTS_BACKEND_NAME.strip().lower()
-            if backend not in _tts_engine_cache:
-                engine = build_tts_engine(backend)
-                engine.load()
-                _tts_engine_cache[backend] = engine
-            _tts_engine = _tts_engine_cache[backend]
 
         if _retriever is None and ENABLE_RAG:
             _retriever = RagRetriever(RAG_CONFIG_PATH)
@@ -800,11 +793,23 @@ async def websocket_endpoint(websocket: WebSocket):
     # candidate, so record terminal events independently of pending candidates.
     pending_judge_turn_ids: set[str] = set()
     terminal_playback: dict[str, bool] = {}
+    turn_delivery_modes: dict[str, str] = {}
+    completed_text_turns: set[str] = set()
+    pending_legacy_text: dict[str, dict] = {}
     pending_judge_lock = threading.RLock()
 
-    def candidate_ready_for_judge(candidate, response_status: str):
+    def candidate_ready_for_judge(candidate, response_status: str, legacy_payload=None):
         bridge = _runtime_v1_bridge
-        if bridge is None or not bridge.candidate_ready(candidate):
+        if bridge is None:
+            if legacy_payload is not None and _runtime_evaluator is not None and response_status == "completed" and candidate.generation_completed:
+                with pending_judge_lock:
+                    outcome = terminal_playback.get(candidate.turn_id)
+                    if outcome is None:
+                        pending_legacy_text[candidate.turn_id] = legacy_payload
+                if outcome is True:
+                    _runtime_evaluator.judge_and_log_async(**legacy_payload)
+            return
+        if not bridge.candidate_ready(candidate):
             return
         if response_status != "completed" or not candidate.generation_completed:
             bridge.acknowledge(candidate.turn_id, delivered=False)
@@ -827,12 +832,15 @@ async def websocket_endpoint(websocket: WebSocket):
             terminal_playback[turn_id] = delivered
             had_candidate = turn_id in pending_judge_turn_ids
             pending_judge_turn_ids.discard(turn_id)
+            legacy_payload = pending_legacy_text.pop(turn_id, None)
+        if delivered and legacy_payload is not None and _runtime_evaluator is not None:
+            _runtime_evaluator.judge_and_log_async(**legacy_payload)
         if bridge is not None and had_candidate:
             bridge.acknowledge(turn_id, delivered=delivered)
 
     def cancel_all_browser_delivery():
         with pending_judge_lock:
-            ids = list(pending_judge_turn_ids)
+            ids = list(pending_judge_turn_ids | pending_legacy_text.keys())
         for turn_id in ids:
             resolve_browser_delivery(turn_id, delivered=False)
 
@@ -895,8 +903,14 @@ async def websocket_endpoint(websocket: WebSocket):
         task6_record_event(evaluation_conversation_id, msg_type, payload.get("turn_id"))
         if msg_type == "tutor_turn_started":
             active_audio_turn_id = payload.get("turn_id")
+            with pending_judge_lock:
+                turn_delivery_modes[active_audio_turn_id] = payload.get("delivery_mode", "audio")
         if msg_type == "audio_stop" and not payload.get("turn_id"):
             payload = {**payload, "turn_id": active_audio_turn_id}
+
+        if msg_type == "text_complete":
+            with pending_judge_lock:
+                completed_text_turns.add(payload["turn_id"])
 
         if msg_type == "audio_chunk":
             browser_audio_active.set()
@@ -1005,7 +1019,7 @@ async def websocket_endpoint(websocket: WebSocket):
         )
 
         # TTS backend from frontend
-        tts_engine = get_tts_engine_for_backend(args.tts_backend)
+        tts_engine = get_tts_engine_for_backend(args.tts_backend) if args.tts_enabled else None
         stt_engine_selected = args.stt_backend
         stt_backend = get_stt_backend_for_backend(stt_engine_selected)
         # For Qwen3-TTS, update the engine's speaker/language on every config apply
@@ -1179,12 +1193,18 @@ async def websocket_endpoint(websocket: WebSocket):
                 pipeline_active.set()
 
                 try:
+                    selected_tts = request_tts_engine
+                    if request_args.tts_enabled and selected_tts is None:
+                        selected_tts = get_tts_engine_for_backend(request_args.tts_backend)
+                    if request_args.tts_enabled and request_args.tts_backend == "qwen3" and hasattr(selected_tts, "cfg"):
+                        selected_tts.cfg.speaker = request_args.qwen3_speaker
+                        selected_tts.cfg.language = request_args.qwen3_language
                     run_llm_tts_pipeline(
                         transcript=transcript,
                         stt_time=stt_time,
                         total_timer=total_timer,
                         llm=request_llm,
-                        tts_engine=request_tts_engine,
+                        tts_engine=selected_tts,
                         retriever=request_retriever,
                         args=request_args,
                         playback=playback,
@@ -1628,9 +1648,28 @@ async def websocket_endpoint(websocket: WebSocket):
                     q_frames.put((frame_np.tobytes(), time.monotonic()))
                 continue
             
+            if action == "set_speech_output":
+                enabled = data.get("tts_enabled")
+                if isinstance(enabled, bool):
+                    # Replace the namespace: a running turn holds its own snapshot.
+                    args = SimpleNamespace(**{**vars(args), "tts_enabled": enabled})
+                continue
+
+            if action == "browser_text_finished":
+                turn_id = data.get("turn_id")
+                with pending_judge_lock:
+                    is_text_turn = turn_delivery_modes.get(turn_id) == "text" and turn_id in completed_text_turns
+                if is_text_turn:
+                    resolve_browser_delivery(turn_id, delivered=True)
+                continue
+
             if action in {"browser_audio_finished", "browser_audio_interrupted"}:
                 turn_id = data.get("turn_id")
                 if not isinstance(turn_id, str) or not turn_id:
+                    continue
+                with pending_judge_lock:
+                    is_audio_turn = turn_delivery_modes.get(turn_id) == "audio"
+                if not is_audio_turn:
                     continue
                 task6_record_event(evaluation_conversation_id, action, turn_id)
                 resolve_browser_delivery(
@@ -1665,7 +1704,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 segmenter.reset()
                 interrupt_segmenter.reset()
 
-                await ws_send({"type": "audio_stop", "turn_id": active_audio_turn_id})
+                if active_audio_turn_id:
+                    resolve_browser_delivery(active_audio_turn_id, delivered=False)
+                    mode = turn_delivery_modes.get(active_audio_turn_id)
+                    await ws_send({"type": "audio_stop" if mode == "audio" else "text_interrupted", "turn_id": active_audio_turn_id})
                 await ws_send({"type": "stage", "value": "interrupted"})
                 continue
 
