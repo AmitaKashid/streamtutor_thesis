@@ -21,18 +21,22 @@ class ThinkingHTTPProvider:
             return False
 
     def stream(self, prompt):
-        # Retry once only when no answer has been released. Some model runs
-        # omit reasoning despite the requested template; never forward them.
+        yield from self.stream_with_cancel(prompt, None)
+
+    def stream_with_cancel(self, prompt, cancel_event):
+        # The event belongs to this request, not the cached provider instance.
         for attempt in range(2):
+            if cancel_event is not None and cancel_event.is_set():
+                return
             try:
-                yield from self._stream_once(prompt)
+                yield from self._stream_once(prompt, cancel_event)
                 return
             except ReasoningNotObserved:
-                if attempt:
+                if attempt or (cancel_event is not None and cancel_event.is_set()):
                     raise
                 print('[THINKING RETRY] no separated reasoning; retrying once', flush=True)
 
-    def _stream_once(self, prompt):
+    def _stream_once(self, prompt, cancel_event=None):
         body = {'messages': [{'role': 'system', 'content': 'You are a concise AI tutor for data mining. Use provided course context when available. Answer clearly and briefly.'}, {'role': 'user', 'content': prompt}], 'stream': True, 'max_tokens': 8192, 'temperature': 1.0, 'top_p': 0.95, 'chat_template_kwargs': {'enable_thinking': True}, 'reasoning_format': 'deepseek'}
         budget = os.environ.get('LLMTUTOR_THINKING_BUDGET', '').strip()
         if budget:
@@ -49,6 +53,8 @@ class ThinkingHTTPProvider:
             # SSE is UTF-8. Decode bytes explicitly; requests otherwise may
             # fall back to ISO-8859-1 when the server omits a charset.
             for raw_line in response.iter_lines(decode_unicode=False):
+                if cancel_event is not None and cancel_event.is_set():
+                    return
                 try:
                     line = raw_line.decode('utf-8')
                 except UnicodeDecodeError as exc:

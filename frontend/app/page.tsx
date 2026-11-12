@@ -1216,7 +1216,6 @@ function ControlDock({
   embedded?: boolean;
 }) {
   const [text, setText] = useState("");
-  const busy = stage !== "idle" && stage !== "error";
 
   return (
     <section
@@ -1271,7 +1270,7 @@ function ControlDock({
         <button
           type="button"
           onClick={onStop}
-          disabled={!busy && !listening}
+          disabled={!connected}
           className="inline-flex h-14 items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-5 text-sm font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
         >
           <Square className="h-4 w-4" /> Stop

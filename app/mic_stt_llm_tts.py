@@ -1256,7 +1256,9 @@ def run_llm_tts_pipeline(
             # Start timing immediately before the actual LLM stream request.
             llm_request_start_t = perf_counter()
 
-            for piece in llm.stream(llm_prompt):
+            stream = (llm.stream_with_cancel(llm_prompt, playback.interrupted)
+                      if hasattr(llm, "stream_with_cancel") else llm.stream(llm_prompt))
+            for piece in stream:
                 if llm_first_text_t is None and piece.strip():
                     llm_first_text_t = perf_counter()
 
