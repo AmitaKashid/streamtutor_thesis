@@ -1242,14 +1242,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     with request_cancel_lock:
                         request_cancel_events.discard(request_cancel_event)
                     emit_from_thread({
-                        "type": "metrics",
-                        "data": {
-                            "conversationTurns": conversation_memory.stats()["turns"],
-                            "conversationChars": conversation_memory.stats()["chars"],
-                        },
-                    })
-
-                    emit_from_thread({
                         "type": "assistant_done",
                         "turn_id": request_turn_id,
                     })
