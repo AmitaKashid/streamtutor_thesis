@@ -130,9 +130,21 @@ class ConversationMemory:
             if self.max_turns is not None and self.max_turns > 0:
                 self.turns = self.turns[-self.max_turns:]
 
-    def format_history(self) -> str:
+    def snapshot(self) -> list[dict[str, str]]:
+        """Return the turns currently eligible for the prompt.
+
+        Apply the current limit when reading as well as when appending. This
+        matters when the user lowers the limit between two requests.
+        """
         with self._lock:
-            turns_copy = list(self.turns)
+            turns_copy = [dict(turn) for turn in self.turns]
+            max_turns = self.max_turns
+        if max_turns is not None and max_turns > 0:
+            turns_copy = turns_copy[-max_turns:]
+        return turns_copy
+
+    def format_history(self) -> str:
+        turns_copy = self.snapshot()
 
         if not turns_copy:
             return ""
@@ -169,8 +181,7 @@ class ConversationMemory:
 
     def stats(self) -> dict:
         history = self.format_history()
-        with self._lock:
-            turns_count = len(self.turns)
+        turns_count = len(self.snapshot())
 
         return {
             "turns": turns_count,
@@ -867,8 +878,7 @@ def run_llm_tts_pipeline(
     raw_current_user_query = final_user_query
     history_snapshot = ()
     if conversation_memory is not None and getattr(args, "conversation_context", False):
-        with conversation_memory._lock:
-            previous_turns = [dict(t) for t in conversation_memory.turns]
+        previous_turns = conversation_memory.snapshot()
         history_snapshot = tuple(msg for turn in previous_turns for msg in (
             {"role": "user", "content": turn["user"]},
             {"role": "assistant", "content": turn["assistant"]},
@@ -1294,6 +1304,7 @@ def run_llm_tts_pipeline(
                     on_reasoning=lambda text: emit({"type": "thinking_chunk", "turn_id": evaluation_turn_id, "text": text}),
                     on_thinking_time=record_thinking_time,
                     on_thinking_preview=preview_thinking_time,
+                    on_server_metrics=lambda metrics: emit({"type": "metrics", "data": metrics}),
                 )
             else:
                 stream = (llm.stream_with_cancel(llm_prompt, playback.interrupted)
