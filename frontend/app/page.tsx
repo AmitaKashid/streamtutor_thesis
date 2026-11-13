@@ -1500,25 +1500,29 @@ function LatencyCharts({ metrics, history }: { metrics: MetricState; history: Tu
   const latencyShareData = [
     {
       name: "STT",
-      description: "Speech-to-text",
+      description: "Speech-to-text latency",
+      available: metrics.stt != null && metrics.stt > 0,
       value: sttValue,
       color: "#2563eb",
     },
     {
       name: "Thinking",
-      description: "Reasoning stream",
+      description: "First reasoning chunk to first answer chunk",
+      available: thinkingValid,
       value: thinkingValue,
       color: "#a855f7",
     },
     {
-      name: "LLM wait",
-      description: "Other time to first answer",
+      name: "Other LLM time",
+      description: "Time to first answer excluding the thinking interval; includes prefill, network and buffering",
+      available: metrics.ttft != null,
       value: Math.max(0, llmValue - thinkingValue),
       color: "#7c3aed",
     },
     {
       name: "TTS",
-      description: "Text-to-speech",
+      description: "Time from first text chunk to first audio",
+      available: metrics.ttsFirstChunk != null,
       value: ttsValue,
       color: "#f97316",
     },
@@ -1540,9 +1544,7 @@ function LatencyCharts({ metrics, history }: { metrics: MetricState; history: Tu
       </div>
       <div className="grid min-h-0 flex-1 grid-rows-[0.95fr_1.25fr] gap-4">
         <div className="flex min-h-0 flex-col rounded-2xl border border-slate-100 bg-slate-50 p-3">
-          <div className="mb-1 font-semibold text-slate-900">First response latency components</div>
-          <div className="text-xs text-slate-600">Latest turn: {LLM_MODELS.find((item) => item.value === metrics.model)?.label ?? metrics.model ?? "—"}</div>
-          <p className="mb-3 text-xs text-slate-500">Approximate shares of available timings; components may overlap. Thinking is part of LLM TTFT.</p>
+          <div className="mb-2 font-semibold text-slate-900" title="Relative shares of available timings. Components can overlap; thinking is included in time to first answer.">Latency breakdown</div>
           <div className="flex min-h-[260px] flex-col items-center justify-center gap-6 sm:flex-row">
             <div className="h-[260px] w-[260px] shrink-0">
               <ResponsiveContainer>
@@ -1565,21 +1567,18 @@ function LatencyCharts({ metrics, history }: { metrics: MetricState; history: Tu
             </div>
 
             <div
-              className="flex min-w-[170px] flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+              className="flex w-full max-w-[270px] flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
               aria-label="Latency chart legend"
             >
               {latencyShareData.map((item) => (
-                <div key={item.name} className="flex items-center gap-3">
+                <div key={item.name} className="flex items-center gap-2" title={item.description}>
                   <span
-                    className="h-3.5 w-3.5 shrink-0 rounded-full"
+                    className="h-3 w-3 shrink-0 rounded-full"
                     style={{ backgroundColor: item.color }}
                     aria-hidden="true"
                   />
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-slate-800">{item.name}</div>
-                    <div className="text-xs text-slate-500">{item.description}</div>
-                    <div className="text-xs tabular-nums text-slate-500">{item.name === "Thinking" && !thinkingValid ? "—" : formatSeconds(item.value)}</div>
-                  </div>
+                  <span className="min-w-0 flex-1 text-sm font-semibold text-slate-800">{item.name}</span>
+                  <span className="shrink-0 text-sm tabular-nums text-slate-600">{item.available ? formatSeconds(item.value) : "—"}</span>
                 </div>
               ))}
             </div>
