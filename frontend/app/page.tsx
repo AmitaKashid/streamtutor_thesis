@@ -214,7 +214,7 @@ const defaultConfig: TutorConfig = {
   llmModel: "llama3_8b_q4",
   ttsBackend: "kokoro",
   ttsEnabled: true,
-  thinkingEnabled: true,
+  thinkingEnabled: false,
   thinkingBudget: "default",
   qwen3Speaker: "Vivian",
   qwen3Language: "en",
@@ -1051,7 +1051,7 @@ function ConfigPanel({
         <SelectField
           label="LLM model"
           value={config.llmModel}
-          onChange={(llmModel) => setConfig((c) => ({ ...c, llmModel }))}
+          onChange={(llmModel) => setConfig((c) => ({ ...c, llmModel, thinkingEnabled: llmModel === c.llmModel ? c.thinkingEnabled : false }))}
           options={LLM_MODELS}
         />
 
