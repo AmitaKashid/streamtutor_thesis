@@ -85,6 +85,63 @@ def healthy(port):
         return False
 
 
+# Exact deployed language-model files, not the UI labels or generic /health.
+THINKING_MODEL_FILES = {
+    'gemma4_e4b_thinking': 'gemma-4-E4B_q4_0-it.gguf',
+    'bonsai2_9b_thinking': 'Ternary-Bonsai-2-9B-Q2_0.gguf',
+}
+
+
+def verify_model_identity(model_key, payload):
+    """Check llama-server's reported model ID against the selected GGUF."""
+    expected = THINKING_MODEL_FILES[model_key]
+    if not isinstance(payload, dict) or not isinstance(payload.get('data'), list):
+        raise RuntimeError(f'{model_key}: invalid /v1/models response')
+    ids = [entry.get('id') for entry in payload['data'] if isinstance(entry, dict)]
+    # The direct llama-server normally reports the path passed with -m.
+    if not any(isinstance(value, str) and value.replace('\\', '/').rsplit('/', 1)[-1] == expected for value in ids):
+        raise RuntimeError(f'{model_key}: expected {expected}, server reports {ids!r}')
+    return expected
+
+
+def remote_models(node, port):
+    # Node is validated by wait_node and port is validated in main. The request
+    # runs on the login node because compute-node names are not exposed locally.
+    url = f'http://{node}:{int(port)}/v1/models'
+    raw = ssh('curl --noproxy "*" -fsS --connect-timeout 3 --max-time 5 ' + shlex.quote(url))
+    try:
+        return json.loads(raw)
+    except (ValueError, TypeError) as exc:
+        raise RuntimeError(f'{node}:{port}: invalid /v1/models JSON') from exc
+
+
+def local_models(port):
+    try:
+        with urllib.request.urlopen(f'http://127.0.0.1:{port}/v1/models', timeout=5) as response:
+            return json.load(response)
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        raise RuntimeError(f'localhost:{port}: could not read /v1/models: {exc}') from exc
+
+
+def wait_remote_model(name, jobid, node, port, model_key, timeout=300):
+    deadline = time.monotonic() + timeout
+    last_error = None
+    while time.monotonic() < deadline:
+        active = jobs(name)
+        if not active or active[0][0] != jobid or active[0][1] != 'RUNNING' or active[0][2] != node:
+            raise RuntimeError(f'{name} job {jobid} is no longer running on {node}')
+        try:
+            payload = remote_models(node, port)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+            last_error = exc
+            time.sleep(5)
+            continue
+        verify_model_identity(model_key, payload)
+        print(f'{name}: verified {model_key} at {node}:{port}', flush=True)
+        return
+    raise TimeoutError(f'{name}: no model server at {node}:{port}; check the job log and remote port. Last error: {last_error}')
+
+
 def print_service_summary():
     """Report observed job status and endpoint health, without inferring identity."""
     print('\n=== StreamTutor model and judge status ===', flush=True)
@@ -142,12 +199,17 @@ def main():
         ('llmtutor_e4b', 'gemma4_e4b_thinking', 8005, args.gemma_remote_port),
         ('llmtutor_bonsai2', 'bonsai2_9b_thinking', 8006, args.bonsai_remote_port),
     ]
-    pending = [(name, local, remote, ensure_job(name, key, remote, remote_script)) for name, key, local, remote in models]
+    pending = [(name, key, local, remote, ensure_job(name, key, remote, remote_script)) for name, key, local, remote in models]
     forwards = []
-    for name, local, remote, jobid in pending:
+    for name, key, local, remote, jobid in pending:
         node = wait_node(name, jobid, args.wait_seconds)
+        # Validate the server on the assigned node and configured remote port,
+        # even for a reused Slurm job. A running job alone is not readiness.
+        wait_remote_model(name, jobid, node, remote, key)
         if healthy(local):
-            print(f'{name}: localhost:{local} already healthy; keeping existing tunnel. Verify model identity if reusing ports.', flush=True)
+            verify_model_identity(key, local_models(local))
+            print(f'{name}: localhost:{local} reports the expected model; reusing endpoint.', flush=True)
+            print('  The endpoint check does not prove which job owns the existing tunnel.', flush=True)
         elif not port_free(local):
             raise RuntimeError(f'Local port {local} is occupied but not healthy. Close its existing tunnel and retry.')
         else:
@@ -160,7 +222,10 @@ def main():
         tunnel = None
     deadline = time.monotonic() + 300
     while time.monotonic() < deadline:
-        if all(healthy(item[1]) for item in pending):
+        if all(healthy(item[2]) for item in pending):
+            for name, key, local, remote, jobid in pending:
+                verify_model_identity(key, local_models(local))
+                print(f'{name}: localhost:{local} reports the expected model.', flush=True)
             print_service_summary()
             print('Thinking model endpoints are healthy. Open http://localhost:3000', flush=True)
             return
