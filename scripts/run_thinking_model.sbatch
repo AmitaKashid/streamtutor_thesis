@@ -10,6 +10,8 @@ set -euo pipefail
 MODEL_KEY="${1:?Usage: sbatch run_thinking_model.sbatch MODEL_KEY PORT}"
 PORT="${2:?Usage: sbatch run_thinking_model.sbatch MODEL_KEY PORT}"
 case "$MODEL_KEY" in
+  gemma4_26b_q3) MODEL_FILE="$HOME/llmtutor/models/gemma-4-26B-A4B-it-UD-Q3_K_XL.gguf" ;;
+  qwen3_5_9b_q6) MODEL_FILE="$HOME/llmtutor/models/Qwen_Qwen3.5-9B-Q6_K.gguf" ;;
   gemma4_e4b_thinking) MODEL_FILE="$HOME/llmtutor/models/gemma-4-E4B_q4_0-it.gguf" ;;
   bonsai2_9b_thinking) MODEL_FILE="$HOME/llmtutor/models/Ternary-Bonsai-2-9B-Q2_0.gguf" ;;
   *) echo "Unknown thinking model: $MODEL_KEY" >&2; exit 2 ;;
@@ -33,4 +35,4 @@ echo 'Starting llama-server; check /health for readiness.'
 # This binds the compute node network interface, matching the current remote
 # tutor server. The port must only be reachable within the trusted cluster.
 exec "$SERVER" -m "$MODEL_FILE" --host 0.0.0.0 --port "$PORT" \
-  -ngl 99 -c 8192 --jinja --reasoning-format deepseek
+  -ngl 99 -c 8192 --parallel 1 --jinja --reasoning-format deepseek

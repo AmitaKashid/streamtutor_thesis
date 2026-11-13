@@ -1,7 +1,6 @@
 """Validate llama-server thinking streams before forwarding final-answer text.
 
-The caller must enable a reasoning parser that emits reasoning_content separately.
-Do not log or forward reasoning_content. Missing separation fails closed.
+Validate the answer channel and enforce the requested reasoning mode.
 """
 from __future__ import annotations
 
@@ -16,10 +15,11 @@ class ReasoningNotObserved(ThinkingStreamError):
 
 class ThinkingStream:
     # Retain enough trailing characters to detect tags split across SSE events.
-    _tags = ("<think>", "</think>", "<|channel|>analysis", "<|channel|>final")
+    _tags = ("<think>", "</think>", "<|think|>", "<|channel>thought", "<channel|>", "<|channel|>analysis", "<|channel|>final")
     _hold = max(map(len, _tags)) - 1
 
-    def __init__(self) -> None:
+    def __init__(self, require_reasoning: bool = True) -> None:
+        self.require_reasoning = require_reasoning
         self.saw_reasoning = False
         self.finished = False
         self.buffer = ""
@@ -41,12 +41,14 @@ class ThinkingStream:
         if reasoning is not None and not isinstance(reasoning, str):
             raise ThinkingStreamError("Invalid reasoning field")
         if reasoning:
+            if not self.require_reasoning:
+                raise ThinkingStreamError("Server emitted reasoning with thinking disabled")
             self.saw_reasoning = True
         content = delta.get("content")
         if content is not None and not isinstance(content, str):
             raise ThinkingStreamError("Invalid content field")
         if content:
-            if not self.saw_reasoning:
+            if self.require_reasoning and not self.saw_reasoning:
                 raise ReasoningNotObserved("Reasoning separation was not verified")
             self.answer_seen = True
             self.buffer += content

@@ -48,6 +48,7 @@ interface Message {
   id: string;
   role: Role;
   text: string;
+  reasoning?: string;
   streaming?: boolean;
   timestamp: string;
 }
@@ -64,6 +65,8 @@ interface MetricState {
   stt?: number;
   ragLatency?: number;
   ttft?: number;
+  thinkingTime?: number | null;
+  model?: string | null;
   ttsFirstChunk?: number;
   llmTotal?: number;
   ttsTotal?: number;
@@ -87,6 +90,7 @@ interface TutorConfig {
   llmModel: string;
   ttsBackend: string;
   ttsEnabled: boolean;
+  thinkingEnabled: boolean;
   qwen3Speaker: string;
   qwen3Language: string;
   ragEnabled: boolean;
@@ -99,6 +103,7 @@ interface TutorConfig {
 type ServerEvent =
   | { type: "stage"; value: Stage }
   | { type: "llm_chunk"; text: string }
+  | { type: "thinking_chunk"; turn_id: string; text: string }
   | { type: "assistant_done" }
   | { type: "sources"; data: SourceItem[] }
   | { type: "metrics"; data: MetricState }
@@ -107,7 +112,7 @@ type ServerEvent =
   | { type: "transcript_final"; text: string }
   | { type: "user_transcript_final"; text: string }
   | { type: "barge_in_accepted"; text: string }
-  | { type: "tutor_turn_started"; turn_id: string; delivery_mode: "audio" | "text" }
+  | { type: "tutor_turn_started"; turn_id: string; delivery_mode: "audio" | "text"; model?: string | null }
   | { type: "text_interrupted"; turn_id: string }
   | { type: "audio_chunk"; turn_id: string; data: string; sample_rate: number; channels: number }
   | { type: "audio_done"; turn_id: string }
@@ -202,6 +207,7 @@ const defaultConfig: TutorConfig = {
   llmModel: "llama3_8b_q4",
   ttsBackend: "kokoro",
   ttsEnabled: true,
+  thinkingEnabled: true,
   qwen3Speaker: "Vivian",
   qwen3Language: "en",
   ragEnabled: true,
@@ -268,7 +274,7 @@ const isSttHallucinationText = (text: string) => {
   return substrings.some((phrase) => norm.includes(phrase));
 };
 
-function formatSeconds(value?: number) {
+function formatSeconds(value?: number | null) {
   if (value === undefined || value === null || Number.isNaN(value)) return "—";
   return `${value.toFixed(3)} s`;
 }
@@ -279,6 +285,7 @@ function toBackendConfig(config: TutorConfig) {
     llm_model: config.llmModel,
     tts_backend: config.ttsBackend,
     tts_enabled: config.ttsEnabled,
+    thinking_enabled: config.thinkingEnabled,
     qwen3_speaker: config.qwen3Speaker,
     qwen3_language: config.qwen3Language,
     rag: config.ragEnabled,
@@ -486,6 +493,9 @@ function useTutorSocket(url: string) {
               stopBrowserAudio(playbackTurnIdRef.current);
             }
             playbackTurnIdRef.current = data.turn_id;
+            const turnModel = data.model ?? null;
+            currentTurnMetricsRef.current = { ...currentTurnMetricsRef.current, model: turnModel, thinkingTime: null };
+            setMetrics((prev) => ({ ...prev, model: turnModel, thinkingTime: null }));
             deliveryModeRef.current = data.delivery_mode;
             streamEndedRef.current = false;
             receivedAudioRef.current = false;
@@ -504,7 +514,7 @@ function useTutorSocket(url: string) {
             setMessages((prev) => {
               const next = [...prev];
               const last = next[next.length - 1];
-              const message: Message = { id: messageId, role: "assistant", text: data.text, streaming: false, timestamp: last?.timestamp || new Date().toLocaleTimeString() };
+              const message: Message = { id: messageId, role: "assistant", text: data.text, reasoning: last?.role === "assistant" && last.streaming ? last.reasoning : undefined, streaming: false, timestamp: last?.timestamp || new Date().toLocaleTimeString() };
               if (last?.role === "assistant" && last.streaming) next[next.length - 1] = message;
               else next.push(message);
               return next;
@@ -624,6 +634,21 @@ function useTutorSocket(url: string) {
             setCapturedText("");
             setPartialText("");
             setStage("interrupted");
+            return;
+          }
+
+          if (data.type === "thinking_chunk") {
+            if (data.turn_id !== playbackTurnIdRef.current || stoppedRef.current) return;
+            setMessages((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last?.role === "assistant" && last.streaming) {
+                next[next.length - 1] = { ...last, reasoning: (last.reasoning || "") + data.text };
+              } else {
+                next.push({ id: `assistant_${data.turn_id}`, role: "assistant", text: "", reasoning: data.text, streaming: true, timestamp: new Date().toLocaleTimeString() });
+              }
+              return next;
+            });
             return;
           }
 
@@ -748,6 +773,7 @@ function useTutorSocket(url: string) {
   const resetTurnMetrics = () => {
     currentTurnMetricsRef.current = {};
     hasRecordedCurrentTurnRef.current = false;
+    setMetrics({});
   };
 
   return {
@@ -1046,6 +1072,12 @@ function MessageBubble({ message }: { message: Message }) {
         <div className={classNames("mb-1 text-xs font-semibold", isUser ? "text-blue-100" : "text-slate-500")}>
           {isUser ? "You" : "Tutor"} · {message.timestamp}
         </div>
+        {message.reasoning ? (
+          <details open={message.streaming && !message.text} className="mb-3 rounded-xl bg-slate-50 p-3 text-slate-600">
+            <summary className="cursor-pointer text-xs font-semibold">Thinking</summary>
+            <div className="mt-2 whitespace-pre-wrap text-sm leading-6">{message.reasoning}</div>
+          </details>
+        ) : null}
         <div className="whitespace-pre-wrap text-sm leading-7">{message.text}</div>
         {message.streaming ? (
           <div className="mt-3 flex items-center gap-1 text-blue-500">
@@ -1107,6 +1139,9 @@ function ConversationPanel({
   listening,
   speechEnabled,
   onSpeechChange,
+  thinkingEnabled,
+  thinkingAvailable,
+  onThinkingChange,
   embedded = false,
 }: {
   messages: Message[];
@@ -1115,6 +1150,9 @@ function ConversationPanel({
   listening: boolean;
   speechEnabled: boolean;
   onSpeechChange: (enabled: boolean) => void;
+  thinkingEnabled: boolean;
+  thinkingAvailable: boolean;
+  onThinkingChange: (enabled: boolean) => void;
   embedded?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -1146,22 +1184,30 @@ function ConversationPanel({
               Voice-first tutoring session
             </h2>
           </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={speechEnabled}
-            onClick={() => onSpeechChange(!speechEnabled)}
-            className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2 text-left shadow-sm transition hover:border-blue-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-          >
-            <Volume2 className="h-4 w-4 text-blue-600" aria-hidden="true" />
-            <span>
-              <span className="block text-sm font-semibold text-slate-800">Speech output</span>
-              <span className="block text-xs text-slate-500">Applies next turn</span>
-            </span>
-            <span aria-hidden="true" className={classNames("relative h-6 w-11 rounded-full transition", speechEnabled ? "bg-blue-600" : "bg-slate-300")}>
-              <span className={classNames("absolute top-1 h-4 w-4 rounded-full bg-white shadow transition", speechEnabled ? "left-6" : "left-1")} />
-            </span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2" aria-label="Response options">
+            <button
+              type="button" role="switch" aria-label="Thinking" aria-checked={thinkingAvailable && thinkingEnabled}
+              disabled={!thinkingAvailable} onClick={() => onThinkingChange(!thinkingEnabled)}
+              title={thinkingAvailable ? "Thinking applies to the next turn" : "Thinking is unavailable for this model"}
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-blue-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <span>Thinking</span>
+              <span aria-hidden="true" className={classNames("relative h-5 w-9 rounded-full transition", thinkingAvailable && thinkingEnabled ? "bg-blue-600" : "bg-slate-300")}>
+                <span className={classNames("absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition", thinkingAvailable && thinkingEnabled ? "left-[18px]" : "left-0.5")} />
+              </span>
+            </button>
+            <button
+              type="button" role="switch" aria-label="Voice output" aria-checked={speechEnabled}
+              onClick={() => onSpeechChange(!speechEnabled)} title="Voice applies to the next turn"
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-blue-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+            >
+              <Volume2 className="h-4 w-4 text-blue-600" aria-hidden="true" />
+              <span>Voice</span>
+              <span aria-hidden="true" className={classNames("relative h-5 w-9 rounded-full transition", speechEnabled ? "bg-blue-600" : "bg-slate-300")}>
+                <span className={classNames("absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition", speechEnabled ? "left-[18px]" : "left-0.5")} />
+              </span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1330,7 +1376,7 @@ function MetricsTable({ history }: { history: TurnMetricRecord[] }) {
                 </th>
 
                 <th
-                  colSpan={2}
+                  colSpan={4}
                   className={`${groupHeaderClass} bg-indigo-50 text-indigo-700`}
                 >
                   LLM
@@ -1359,7 +1405,9 @@ function MetricsTable({ history }: { history: TurnMetricRecord[] }) {
                 <th className={columnHeaderClass}>RAG latency</th>
                 <th className={columnHeaderClass}>Prompt chars</th>
                 <th className={columnHeaderClass}>Conversation chars</th>
-                <th className={columnHeaderClass}>LLM TTFT</th>
+                <th className={columnHeaderClass}>Model</th>
+                <th className={columnHeaderClass} title="First reasoning chunk to first answer chunk; client-observed.">Thinking</th>
+                <th className={columnHeaderClass} title="Time until the first answer text is available, including any thinking.">LLM TTFT (answer)</th>
                 <th className={columnHeaderClass}>LLM total</th>
                 <th className={columnHeaderClass}>TTS first chunk</th>
                 <th className={columnHeaderClass}>First audio</th>
@@ -1371,7 +1419,7 @@ function MetricsTable({ history }: { history: TurnMetricRecord[] }) {
               {history.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={10}
+                    colSpan={12}
                     className="px-4 py-8 text-center text-sm font-medium text-slate-400"
                   >
                     Metrics will appear after the first completed turn.
@@ -1403,6 +1451,12 @@ function MetricsTable({ history }: { history: TurnMetricRecord[] }) {
                       {record.metrics.conversationChars?.toLocaleString() ?? "—"}
                     </td>
 
+                    <td className={cellClass}>
+                      {LLM_MODELS.find((item) => item.value === record.metrics.model)?.label ?? record.metrics.model ?? "—"}
+                    </td>
+                    <td className={numericCellClass}>
+                      {formatSeconds(record.metrics.thinkingTime)}
+                    </td>
                     <td className="px-4 py-3 text-sm font-bold tabular-nums text-blue-700">
                       {formatSeconds(record.metrics.ttft)}
                     </td>
@@ -1436,6 +1490,11 @@ function MetricsTable({ history }: { history: TurnMetricRecord[] }) {
 function LatencyCharts({ metrics, history }: { metrics: MetricState; history: TurnMetricRecord[] }) {
   const sttValue = metrics.stt ?? 0;
   const llmValue = metrics.ttft ?? 0;
+  const measuredThinking = metrics.thinkingTime;
+  // Thinking is included in first-answer TTFT. Do not double-count it.
+  const thinkingValid = measuredThinking != null && Number.isFinite(measuredThinking)
+    && measuredThinking >= 0 && measuredThinking <= llmValue;
+  const thinkingValue = thinkingValid ? measuredThinking : 0;
   const ttsValue = metrics.ttsFirstChunk ?? 0;
 
   const latencyShareData = [
@@ -1446,9 +1505,15 @@ function LatencyCharts({ metrics, history }: { metrics: MetricState; history: Tu
       color: "#2563eb",
     },
     {
-      name: "LLM",
-      description: "Language model",
-      value: llmValue,
+      name: "Thinking",
+      description: "Reasoning stream",
+      value: thinkingValue,
+      color: "#a855f7",
+    },
+    {
+      name: "LLM wait",
+      description: "Other time to first answer",
+      value: Math.max(0, llmValue - thinkingValue),
       color: "#7c3aed",
     },
     {
@@ -1475,7 +1540,9 @@ function LatencyCharts({ metrics, history }: { metrics: MetricState; history: Tu
       </div>
       <div className="grid min-h-0 flex-1 grid-rows-[0.95fr_1.25fr] gap-4">
         <div className="flex min-h-0 flex-col rounded-2xl border border-slate-100 bg-slate-50 p-3">
-          <div className="mb-3 font-semibold text-slate-900">STT / LLM / TTS share</div>
+          <div className="mb-1 font-semibold text-slate-900">First response latency components</div>
+          <div className="text-xs text-slate-600">Latest turn: {LLM_MODELS.find((item) => item.value === metrics.model)?.label ?? metrics.model ?? "—"}</div>
+          <p className="mb-3 text-xs text-slate-500">Approximate shares of available timings; components may overlap. Thinking is part of LLM TTFT.</p>
           <div className="flex min-h-[260px] flex-col items-center justify-center gap-6 sm:flex-row">
             <div className="h-[260px] w-[260px] shrink-0">
               <ResponsiveContainer>
@@ -1511,6 +1578,7 @@ function LatencyCharts({ metrics, history }: { metrics: MetricState; history: Tu
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-slate-800">{item.name}</div>
                     <div className="text-xs text-slate-500">{item.description}</div>
+                    <div className="text-xs tabular-nums text-slate-500">{item.name === "Thinking" && !thinkingValid ? "—" : formatSeconds(item.value)}</div>
                   </div>
                 </div>
               ))}
@@ -1662,6 +1730,11 @@ export default function Page() {
   // send reads the current socket; changing the switch affects only the next turn.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected, config.ttsEnabled]);
+
+  useEffect(() => {
+    if (connected) send({ action: "set_thinking", thinking_enabled: config.thinkingEnabled });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, config.thinkingEnabled]);
 
   const shouldKeepListeningRef = useRef(false);
   const assistantOutputActiveRef = useRef(false);
@@ -1983,6 +2056,9 @@ export default function Page() {
                   listening={listening}
                   speechEnabled={config.ttsEnabled}
                   onSpeechChange={(ttsEnabled) => setConfig((c) => ({ ...c, ttsEnabled }))}
+                  thinkingEnabled={config.thinkingEnabled}
+                  thinkingAvailable={["gemma4_e4b_thinking", "bonsai2_9b_thinking", "gemma4_26b_q3", "qwen3_5_9b_q6"].includes(config.llmModel)}
+                  onThinkingChange={(thinkingEnabled) => setConfig((c) => ({ ...c, thinkingEnabled }))}
                   embedded
                 />
 

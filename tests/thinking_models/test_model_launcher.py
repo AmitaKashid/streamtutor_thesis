@@ -5,6 +5,27 @@ from scripts import start_all_models as launcher
 
 
 class LauncherTests(unittest.TestCase):
+    @patch.object(launcher.subprocess, 'run')
+    def test_ssh_is_noninteractive_and_has_timeout(self, run):
+        run.return_value.stdout = 'ok\n'
+        self.assertEqual(launcher.ssh('true'), 'ok')
+        self.assertIn('-n', run.call_args.args[0])
+        self.assertIn('-T', run.call_args.args[0])
+        self.assertEqual(run.call_args.kwargs['timeout'], 45)
+        self.assertEqual(run.call_args.kwargs['stdin'], launcher.subprocess.DEVNULL)
+
+    @patch.object(launcher.subprocess, 'run')
+    def test_ssh_timeout_reports_blocked_command(self, run):
+        run.side_effect = launcher.subprocess.TimeoutExpired('ssh', 45)
+        with self.assertRaisesRegex(RuntimeError, 'SSH command timed out.*mkdir'):
+            launcher.ssh('mkdir -p test')
+
+    @patch.object(launcher.subprocess, 'run')
+    def test_ssh_error_includes_stderr(self, run):
+        run.side_effect = launcher.subprocess.CalledProcessError(255, 'ssh', stderr='Permission denied')
+        with self.assertRaisesRegex(RuntimeError, 'Permission denied'):
+            launcher.ssh('true')
+
     def test_summary_lists_all_models_and_judge_with_observed_status(self):
         from contextlib import redirect_stdout
         from io import StringIO
@@ -17,7 +38,7 @@ class LauncherTests(unittest.TestCase):
             self.assertIn(label, text)
             self.assertIn(f'localhost:{port} healthy', text)
         self.assertIn('does not verify model identity', text)
-        self.assertEqual(len(launcher.SERVICES), 6)
+        self.assertEqual(len(launcher.SERVICES), 8)
 
     def test_model_identity_accepts_exact_deployed_path(self):
         payload = {'data': [{'id': '/home/user/models/gemma-4-E4B_q4_0-it.gguf'}]}

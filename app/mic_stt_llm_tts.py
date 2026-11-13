@@ -203,7 +203,7 @@ def start_terminal_dots(message: str = "Preparing your explanation"):
 # ---------------- LLM ----------------
 def build_llm(args):
     if args.llm_backend == "remote":
-        if args.llm_model in {"gemma4_e4b_thinking", "bonsai2_9b_thinking"}:
+        if args.llm_model in {"gemma4_e4b_thinking", "bonsai2_9b_thinking", "gemma4_26b_q3", "qwen3_5_9b_q6"}:
             from llm.llmcli.providers.thinking_http import ThinkingHTTPProvider
             provider = ThinkingHTTPProvider(args.llm_server_url, args.llm_read_timeout)
             if not provider.healthcheck():
@@ -763,7 +763,8 @@ def run_llm_tts_pipeline(
 
     tts_enabled = getattr(args, "tts_enabled", True)
     emit({"type": "tutor_turn_started", "turn_id": evaluation_turn_id,
-          "delivery_mode": "audio" if tts_enabled else "text"})
+          "delivery_mode": "audio" if tts_enabled else "text",
+          "model": getattr(args, "llm_model", None)})
     print_effective_config(args)
     emit({
         "type": "config_applied",
@@ -1185,6 +1186,11 @@ def run_llm_tts_pipeline(
     llm_request_start_t = None
     llm_first_text_t = None
     llm_stream_done_t = None
+    thinking_time_s = None
+
+    def record_thinking_time(seconds):
+        nonlocal thinking_time_s
+        thinking_time_s = seconds
 
     tts_proc_total = 0.0
     chunks_count = 0
@@ -1256,8 +1262,16 @@ def run_llm_tts_pipeline(
             # Start timing immediately before the actual LLM stream request.
             llm_request_start_t = perf_counter()
 
-            stream = (llm.stream_with_cancel(llm_prompt, playback.interrupted)
-                      if hasattr(llm, "stream_with_cancel") else llm.stream(llm_prompt))
+            if hasattr(llm, "stream_with_cancel") and args.llm_model in {"gemma4_e4b_thinking", "bonsai2_9b_thinking", "gemma4_26b_q3", "qwen3_5_9b_q6"}:
+                stream = llm.stream_with_cancel(
+                    llm_prompt, playback.interrupted,
+                    thinking_enabled=getattr(args, "thinking_enabled", True),
+                    on_reasoning=lambda text: emit({"type": "thinking_chunk", "turn_id": evaluation_turn_id, "text": text}),
+                    on_thinking_time=record_thinking_time,
+                )
+            else:
+                stream = (llm.stream_with_cancel(llm_prompt, playback.interrupted)
+                          if hasattr(llm, "stream_with_cancel") else llm.stream(llm_prompt))
             for piece in stream:
                 if llm_first_text_t is None and piece.strip():
                     llm_first_text_t = perf_counter()
@@ -1677,6 +1691,7 @@ def run_llm_tts_pipeline(
         "data": {
             "stt": stt_time,
             "ttft": llm_ttft_real,
+            "thinkingTime": thinking_time_s if response_status == "completed" else None,
             "ttsFirstChunk": tts_actual_start_latency,
 
             "llmTotal": llm_time,

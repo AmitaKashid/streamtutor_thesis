@@ -24,17 +24,32 @@ LOGIN = 'sofja.urz.uni-magdeburg.de'
 # Slurm jobs and local ports are listed here for the final status report.
 SERVICES = (
     ('Llama 3 8B', 'llmtutor_llama', 8000),
-    ('Gemma 4 26B', 'llmtutor_gemma', 8002),
-    ('Qwen 3.5 9B', 'llmtutor_qwen_llm', 8003),
+    ('Gemma 4 26B (legacy)', 'llmtutor_gemma', 8002),
+    ('Qwen 3.5 9B (legacy)', 'llmtutor_qwen_llm', 8003),
+    ('Gemma 4 26B Thinking', 'llmtutor_gemma_think', 8007),
+    ('Qwen 3.5 9B Thinking', 'llmtutor_qwen_think', 8008),
     ('FARE judge', 'llmtutor_judge', 8004),
     ('Gemma 4 E4B Thinking', 'llmtutor_e4b', 8005),
     ('Bonsai 2 9B Thinking', 'llmtutor_bonsai2', 8006),
 )
 
 
+class SSHCommandError(RuntimeError):
+    """A bounded SSH request failed or timed out."""
+
+
 def ssh(command: str) -> str:
-    result = subprocess.run(['ssh', '-i', str(KEY), '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20',
-                             f'{USER}@{LOGIN}', command], check=True, capture_output=True, text=True)
+    try:
+        result = subprocess.run(
+            ['ssh', '-n', '-T', '-i', str(KEY), '-o', 'BatchMode=yes',
+             '-o', 'ConnectTimeout=20', f'{USER}@{LOGIN}', command],
+            stdin=subprocess.DEVNULL, check=True, capture_output=True, text=True, timeout=45,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SSHCommandError(f'SSH command timed out after 45 seconds: {command}') from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or '').strip() or f'exit code {exc.returncode}'
+        raise SSHCommandError(f'SSH command failed ({command}): {detail}') from exc
     return result.stdout.strip()
 
 
@@ -87,6 +102,8 @@ def healthy(port):
 
 # Exact deployed language-model files, not the UI labels or generic /health.
 THINKING_MODEL_FILES = {
+    'gemma4_26b_q3': 'gemma-4-26B-A4B-it-UD-Q3_K_XL.gguf',
+    'qwen3_5_9b_q6': 'Qwen_Qwen3.5-9B-Q6_K.gguf',
     'gemma4_e4b_thinking': 'gemma-4-E4B_q4_0-it.gguf',
     'bonsai2_9b_thinking': 'Ternary-Bonsai-2-9B-Q2_0.gguf',
 }
@@ -132,7 +149,7 @@ def wait_remote_model(name, jobid, node, port, model_key, timeout=300):
             raise RuntimeError(f'{name} job {jobid} is no longer running on {node}')
         try:
             payload = remote_models(node, port)
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+        except (SSHCommandError, subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
             last_error = exc
             time.sleep(5)
             continue
@@ -170,11 +187,13 @@ def main():
     parser.add_argument('--reuse-stack', action='store_true', help='Do not run the existing full-stack startup script')
     parser.add_argument('--gemma-remote-port', type=int, default=8005)
     parser.add_argument('--bonsai-remote-port', type=int, default=18086)
+    parser.add_argument('--gemma26-remote-port', type=int, default=18087)
+    parser.add_argument('--qwen-remote-port', type=int, default=18088)
     parser.add_argument('--wait-seconds', type=int, default=1800)
     args = parser.parse_args()
     if os.name != 'nt': raise RuntimeError('Run this launcher on Windows.')
     if not KEY.is_file(): raise RuntimeError(f'SSH key missing: {KEY}')
-    if not all(1024 <= p <= 65535 for p in (args.gemma_remote_port, args.bonsai_remote_port)):
+    if not all(1024 <= p <= 65535 for p in (args.gemma_remote_port, args.bonsai_remote_port, args.gemma26_remote_port, args.qwen_remote_port)):
         raise ValueError('Remote ports must be between 1024 and 65535')
     if args.wait_seconds <= 0: raise ValueError('--wait-seconds must be positive')
     legacy = ROOT / 'scripts' / 'start_full_llmtutor_stack.ps1'
@@ -182,7 +201,8 @@ def main():
     if not legacy.is_file() or not job_script.is_file(): raise RuntimeError('Startup script or thinking-model Slurm script is missing')
     print('=== StreamTutor full startup: five tutor models + one judge ===', flush=True)
     print('Phase 1 starts Llama 3, Gemma 4 26B, Qwen 3.5 and the FARE judge.', flush=True)
-    print('Phase 2 starts or reuses Gemma 4 E4B Thinking and Bonsai 2 9B Thinking.', flush=True)
+    print('Phase 2 starts or reuses four thinking-capable servers.', flush=True)
+    print('Gemma 26B and Qwen use additional GPU jobs; legacy servers are left running.', flush=True)
     print('The older script reports only Phase 1; Phase 2 is shown separately below.', flush=True)
     if not args.reuse_stack:
         print('Starting your existing full-stack script. Its normal cleanup and job submission will run.', flush=True)
@@ -192,10 +212,14 @@ def main():
     import hashlib
     digest = hashlib.sha256(job_script.read_bytes()).hexdigest()[:12]
     remote_script = f'scripts/run_thinking_model_{digest}.sbatch'
+    print('Connecting to Sofja and preparing directories (up to 45 seconds)...', flush=True)
     ssh('mkdir -p ~/llmtutor/scripts ~/llmtutor/logs')
-    subprocess.run(['scp', '-i', str(KEY), '-o', 'BatchMode=yes', str(job_script),
-                    f'{USER}@{LOGIN}:llmtutor/{remote_script}'], check=True)
+    print('Uploading the Slurm script (up to 120 seconds)...', flush=True)
+    subprocess.run(['scp', '-i', str(KEY), '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', str(job_script),
+                    f'{USER}@{LOGIN}:llmtutor/{remote_script}'], stdin=subprocess.DEVNULL, check=True, timeout=120)
     models = [
+        ('llmtutor_gemma_think', 'gemma4_26b_q3', 8007, args.gemma26_remote_port),
+        ('llmtutor_qwen_think', 'qwen3_5_9b_q6', 8008, args.qwen_remote_port),
         ('llmtutor_e4b', 'gemma4_e4b_thinking', 8005, args.gemma_remote_port),
         ('llmtutor_bonsai2', 'bonsai2_9b_thinking', 8006, args.bonsai_remote_port),
     ]

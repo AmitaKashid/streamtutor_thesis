@@ -90,9 +90,9 @@ REMOTE_MODEL_URLS = {
     "llama3_8b_q5": "http://127.0.0.1:8000",
 
     # match your cluster script model key
-    "gemma4_26b_q3": "http://127.0.0.1:8002",
+    "gemma4_26b_q3": "http://127.0.0.1:8007",
 
-    "qwen3_5_9b_q6": "http://127.0.0.1:8003",
+    "qwen3_5_9b_q6": "http://127.0.0.1:8008",
     "gemma4_e4b_thinking": "http://127.0.0.1:8005",
     "bonsai2_9b_thinking": "http://127.0.0.1:8006",
 }
@@ -512,6 +512,7 @@ def build_pipeline_args(config: dict | None = None):
         speak=False,
         browser_audio=True,
         tts_enabled=config.get("tts_enabled", True) if isinstance(config.get("tts_enabled", True), bool) else True,
+        thinking_enabled=config.get("thinking_enabled", True) if isinstance(config.get("thinking_enabled", True), bool) else True,
         tts_backend=tts_backend,
         qwen3_speaker=qwen3_speaker,
         qwen3_language=qwen3_language,
@@ -1650,6 +1651,12 @@ async def websocket_endpoint(websocket: WebSocket):
                     q_frames.put((frame_np.tobytes(), time.monotonic()))
                 continue
             
+            if action == "set_thinking":
+                enabled = data.get("thinking_enabled")
+                if isinstance(enabled, bool):
+                    args = SimpleNamespace(**{**vars(args), "thinking_enabled": enabled})
+                continue
+
             if action == "set_speech_output":
                 enabled = data.get("tts_enabled")
                 if isinstance(enabled, bool):
