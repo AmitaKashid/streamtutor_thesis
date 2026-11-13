@@ -93,6 +93,7 @@ interface TutorConfig {
   ttsBackend: string;
   ttsEnabled: boolean;
   thinkingEnabled: boolean;
+  thinkingBudget: "default" | "256" | "512" | "1024";
   qwen3Speaker: string;
   qwen3Language: string;
   ragEnabled: boolean;
@@ -212,6 +213,7 @@ const defaultConfig: TutorConfig = {
   ttsBackend: "kokoro",
   ttsEnabled: true,
   thinkingEnabled: true,
+  thinkingBudget: "default",
   qwen3Speaker: "Vivian",
   qwen3Language: "en",
   ragEnabled: true,
@@ -290,6 +292,7 @@ function toBackendConfig(config: TutorConfig) {
     tts_backend: config.ttsBackend,
     tts_enabled: config.ttsEnabled,
     thinking_enabled: config.thinkingEnabled,
+    reasoning_budget_tokens: config.thinkingEnabled && config.thinkingBudget !== "default" ? Number(config.thinkingBudget) : null,
     qwen3_speaker: config.qwen3Speaker,
     qwen3_language: config.qwen3Language,
     rag: config.ragEnabled,
@@ -1214,6 +1217,8 @@ function ConversationPanel({
   thinkingEnabled,
   thinkingAvailable,
   onThinkingChange,
+  thinkingBudget,
+  onThinkingBudgetChange,
   embedded = false,
 }: {
   messages: Message[];
@@ -1225,6 +1230,8 @@ function ConversationPanel({
   thinkingEnabled: boolean;
   thinkingAvailable: boolean;
   onThinkingChange: (enabled: boolean) => void;
+  thinkingBudget: TutorConfig["thinkingBudget"];
+  onThinkingBudgetChange: (value: TutorConfig["thinkingBudget"]) => void;
   embedded?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -1268,6 +1275,17 @@ function ConversationPanel({
                 <span className={classNames("absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition", thinkingAvailable && thinkingEnabled ? "left-[18px]" : "left-0.5")} />
               </span>
             </button>
+            {thinkingAvailable && thinkingEnabled && (
+              <label className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm">
+                <span className="sr-only">Thinking budget</span>
+                <select aria-label="Thinking budget" title="Maximum reasoning tokens; applies next turn. Experimental: model enforcement requires verification." value={thinkingBudget} onChange={(event) => onThinkingBudgetChange(event.target.value as TutorConfig["thinkingBudget"])} className="max-w-36 bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
+                  <option value="default">Budget · Default</option>
+                  <option value="256">Short · 256</option>
+                  <option value="512">Medium · 512</option>
+                  <option value="1024">Long · 1024</option>
+                </select>
+              </label>
+            )}
             <button
               type="button" role="switch" aria-label="Voice output" aria-checked={speechEnabled}
               onClick={() => onSpeechChange(!speechEnabled)} title="Voice applies to the next turn"
@@ -2137,6 +2155,8 @@ export default function Page() {
                   thinkingEnabled={config.thinkingEnabled}
                   thinkingAvailable={["gemma4_e4b_thinking", "bonsai2_9b_thinking", "gemma4_26b_q3", "qwen3_5_9b_q6"].includes(config.llmModel)}
                   onThinkingChange={(thinkingEnabled) => setConfig((c) => ({ ...c, thinkingEnabled }))}
+                  thinkingBudget={config.thinkingBudget}
+                  onThinkingBudgetChange={(thinkingBudget) => setConfig((c) => ({ ...c, thinkingBudget }))}
                   embedded
                 />
 
