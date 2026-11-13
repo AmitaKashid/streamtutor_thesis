@@ -1616,6 +1616,7 @@ function LatencyCharts({ metrics, history }: { metrics: MetricState; history: Tu
       turn: item.turn,
       ttft: item.metrics.ttft ?? 0,
       contextChars: item.metrics.promptChars ?? item.metrics.conversationChars ?? 0,
+      model: LLM_MODELS.find((model) => model.value === item.metrics.model)?.label ?? item.metrics.model ?? "—",
     }))
     .filter((x) => x.ttft > 0 && x.contextChars > 0);
   return (
@@ -1666,82 +1667,72 @@ function LatencyCharts({ metrics, history }: { metrics: MetricState; history: Tu
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-col rounded-2xl border border-slate-100 bg-slate-50 p-3">
-          <div className="mb-3 font-semibold text-slate-900">LLM TTFT vs conversation context</div>
-          <div className="relative mx-auto aspect-square h-[430px] w-[430px] max-h-full max-w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={ttftData}
-                margin={{ top: 18, right: 22, bottom: 34, left: 22 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-
-                <XAxis
-                  dataKey="contextChars"
-                  type="number"
-                  domain={["dataMin", "dataMax"]}
-                  tick={{ fontSize: 11, fill: "#64748b" }}
-                  height={44}
-                  axisLine={{ stroke: "#94a3b8", strokeWidth: 1.4 }}
-                  tickLine={{ stroke: "#94a3b8" }}
-                  label={{
-                    value: "context length / prompt chars",
-                    position: "insideBottom",
-                    offset: -12,
-                    fontSize: 11,
-                    fill: "#64748b",
-                  }}
-                />
-
-                <YAxis
-                  dataKey="ttft"
-                  type="number"
-                  domain={["auto", "auto"]}
-                  tick={{ fontSize: 11, fill: "#64748b" }}
-                  width={52}
-                  axisLine={{ stroke: "#94a3b8", strokeWidth: 1.4 }}
-                  tickLine={{ stroke: "#94a3b8" }}
-                  label={{
-                    value: "LLM TTFT (s)",
-                    angle: -90,
-                    position: "insideLeft",
-                    offset: 10,
-                    fontSize: 11,
-                    fill: "#64748b",
-                  }}
-                />
-
-                <Tooltip
-                  formatter={(value, name) => [
-                    name === "ttft" ? `${Number(value).toFixed(3)} s` : value,
-                    name === "ttft" ? "LLM TTFT" : name,
-                  ]}
-                  labelFormatter={(label) => `Context length: ${label} chars`}
-                />
-
-                <Line
-                  type="monotone"
-                  dataKey="ttft"
-                  name="LLM TTFT"
-                  stroke="#2563eb"
-                  strokeWidth={3}
-                  dot={{
-                    r: 5,
-                    stroke: "#2563eb",
-                    strokeWidth: 2,
-                    fill: "#ffffff",
-                  }}
-                  activeDot={{
-                    r: 7,
-                    stroke: "#1d4ed8",
-                    strokeWidth: 2,
-                    fill: "#2563eb",
-                  }}
-                  connectNulls
-                  isAnimationActive
-                />
-              </LineChart>
-            </ResponsiveContainer>
+        <div className="flex min-h-0 flex-col rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-blue-50/60 p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-100 text-blue-700" aria-hidden="true">
+                <BarChart3 className="h-4 w-4" />
+              </span>
+              <div className="text-sm font-semibold text-slate-900">LLM TTFT vs conversation context</div>
+            </div>
+            <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-500 ring-1 ring-slate-200">seconds</span>
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-slate-100 bg-white/90 px-2 pb-2 pt-3">
+            <div className="min-h-0 w-full flex-1">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={ttftData} margin={{ top: 12, right: 22, bottom: 2, left: 6 }}>
+                  <CartesianGrid vertical={false} strokeDasharray="4 5" stroke="#e2e8f0" />
+                  <XAxis
+                    dataKey="contextChars"
+                    type="number"
+                    domain={["dataMin", "dataMax"]}
+                    tick={{ fontSize: 11, fill: "#64748b" }}
+                    tickLine={false}
+                    axisLine={{ stroke: "#cbd5e1" }}
+                    tickMargin={9}
+                    height={30}
+                  />
+                  <YAxis
+                    dataKey="ttft"
+                    type="number"
+                    domain={["auto", "auto"]}
+                    tick={{ fontSize: 11, fill: "#64748b" }}
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    width={45}
+                  />
+                  <Tooltip
+                    cursor={{ stroke: "#93c5fd", strokeDasharray: "4 4", strokeWidth: 1 }}
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null;
+                      const point = payload[0]?.payload as { turn: number; ttft: number; contextChars: number; model: string } | undefined;
+                      if (!point) return null;
+                      return (
+                        <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 shadow-lg">
+                          <div className="font-semibold text-slate-900">Turn {point.turn} · {point.model}</div>
+                          <div className="mt-1">TTFT: <span className="font-semibold tabular-nums text-blue-700">{point.ttft.toFixed(3)} s</span></div>
+                          <div>Context: <span className="font-medium tabular-nums">{point.contextChars.toLocaleString()} chars</span></div>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Line
+                    type="linear"
+                    dataKey="ttft"
+                    name="LLM TTFT"
+                    stroke="#2563eb"
+                    strokeWidth={3}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    dot={{ r: 4.5, stroke: "#2563eb", strokeWidth: 2, fill: "#ffffff" }}
+                    activeDot={{ r: 6.5, stroke: "#ffffff", strokeWidth: 2, fill: "#2563eb" }}
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="pt-1 text-center text-[11px] font-medium text-slate-500">Context / prompt · characters</div>
           </div>
         </div>
       </div>
