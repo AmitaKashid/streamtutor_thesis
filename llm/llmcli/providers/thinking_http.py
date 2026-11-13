@@ -23,21 +23,21 @@ class ThinkingHTTPProvider:
     def stream(self, prompt):
         yield from self.stream_with_cancel(prompt, None)
 
-    def stream_with_cancel(self, prompt, cancel_event, *, thinking_enabled=True, on_reasoning=None, on_thinking_time=None):
+    def stream_with_cancel(self, prompt, cancel_event, *, thinking_enabled=True, on_reasoning=None, on_thinking_time=None, on_thinking_preview=None):
         # Settings and callbacks belong to this request, not the cached provider.
         # The event belongs to this request, not the cached provider instance.
         for attempt in range(2):
             if cancel_event is not None and cancel_event.is_set():
                 return
             try:
-                yield from self._stream_once(prompt, cancel_event, thinking_enabled=thinking_enabled, on_reasoning=on_reasoning, on_thinking_time=on_thinking_time)
+                yield from self._stream_once(prompt, cancel_event, thinking_enabled=thinking_enabled, on_reasoning=on_reasoning, on_thinking_time=on_thinking_time, on_thinking_preview=on_thinking_preview)
                 return
             except ReasoningNotObserved:
                 if attempt or (cancel_event is not None and cancel_event.is_set()):
                     raise
                 print('[THINKING RETRY] no separated reasoning; retrying once', flush=True)
 
-    def _stream_once(self, prompt, cancel_event=None, *, thinking_enabled=True, on_reasoning=None, on_thinking_time=None):
+    def _stream_once(self, prompt, cancel_event=None, *, thinking_enabled=True, on_reasoning=None, on_thinking_time=None, on_thinking_preview=None):
         body = {'messages': [{'role': 'system', 'content': 'You are a concise AI tutor for data mining. Use provided course context when available. Answer clearly and briefly.'}, {'role': 'user', 'content': prompt}], 'stream': True, 'max_tokens': 8192, 'temperature': 1.0, 'top_p': 0.95, 'chat_template_kwargs': {'enable_thinking': thinking_enabled}, 'reasoning_format': 'deepseek'}
         budget = os.environ.get('LLMTUTOR_THINKING_BUDGET', '').strip()
         if budget and thinking_enabled:
@@ -49,6 +49,7 @@ class ThinkingHTTPProvider:
         first_reasoning = None
         first_content = None
         reasoning_chars = 0
+        thinking_preview_sent = False
         with requests.post(self.base_url + '/v1/chat/completions', json=body, stream=True, timeout=(3, self.read_timeout)) as response:
             response.raise_for_status()
             # SSE is UTF-8. Decode bytes explicitly; requests otherwise may
@@ -91,6 +92,11 @@ class ThinkingHTTPProvider:
                         if isinstance(content, str) and content and first_content is None:
                             first_content = time.perf_counter() - started
                     value = parser.feed(event)
+                    # Preview at the first answer delta; only [DONE] confirms it.
+                    if (not thinking_preview_sent and first_reasoning is not None and
+                            first_content is not None and on_thinking_preview):
+                        on_thinking_preview(first_content - first_reasoning)
+                        thinking_preview_sent = True
                     if thinking_enabled and on_reasoning and choices and reasoning:
                         on_reasoning(reasoning)
                 except (ValueError, TypeError, KeyError) as exc:

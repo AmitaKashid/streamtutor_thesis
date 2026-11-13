@@ -67,6 +67,7 @@ interface MetricState {
   ragLatency?: number;
   ttft?: number;
   thinkingTime?: number | null;
+  llmAnswerTime?: number | null;
   model?: string | null;
   ttsFirstChunk?: number;
   llmTotal?: number;
@@ -105,6 +106,8 @@ type ServerEvent =
   | { type: "stage"; value: Stage }
   | { type: "llm_chunk"; text: string }
   | { type: "thinking_chunk"; turn_id: string; text: string }
+  | { type: "thinking_preview"; turn_id: string; seconds: number }
+  | { type: "llm_answer_progress"; turn_id: string; seconds: number }
   | { type: "assistant_done"; turn_id?: string }
   | { type: "sources"; data: SourceItem[] }
   | { type: "metrics"; data: MetricState }
@@ -513,8 +516,8 @@ function useTutorSocket(url: string) {
             playbackTurnIdRef.current = data.turn_id;
             updateResponse({ type: "start", audio: data.delivery_mode === "audio" });
             const turnModel = data.model ?? null;
-            currentTurnMetricsRef.current = { ...currentTurnMetricsRef.current, model: turnModel, thinkingTime: null };
-            setMetrics((prev) => ({ ...prev, model: turnModel, thinkingTime: null }));
+            currentTurnMetricsRef.current = { ...currentTurnMetricsRef.current, model: turnModel, thinkingTime: null, llmAnswerTime: null };
+            setMetrics((prev) => ({ ...prev, model: turnModel, thinkingTime: null, llmAnswerTime: null }));
             deliveryModeRef.current = data.delivery_mode;
             streamEndedRef.current = false;
             receivedAudioRef.current = false;
@@ -523,7 +526,11 @@ function useTutorSocket(url: string) {
           }
 
           if (data.type === "text_interrupted") {
-            if (data.turn_id === playbackTurnIdRef.current) stoppedRef.current = true;
+            if (data.turn_id === playbackTurnIdRef.current) {
+              stoppedRef.current = true;
+              currentTurnMetricsRef.current = { ...currentTurnMetricsRef.current, thinkingTime: null, llmAnswerTime: null };
+              setMetrics((prev) => ({ ...prev, thinkingTime: null, llmAnswerTime: null }));
+            }
             return;
           }
 
@@ -559,6 +566,10 @@ function useTutorSocket(url: string) {
           if (data.type === "audio_stop") {
             if (data.turn_id === playbackTurnIdRef.current) {
               stopBrowserAudio(data.turn_id);
+              if (responseStateRef.current.generating) {
+                currentTurnMetricsRef.current = { ...currentTurnMetricsRef.current, thinkingTime: null, llmAnswerTime: null };
+                setMetrics((prev) => ({ ...prev, thinkingTime: null, llmAnswerTime: null }));
+              }
               updateResponse({ type: "audio_done" });
             }
             return;
@@ -657,6 +668,16 @@ function useTutorSocket(url: string) {
             setCapturedText("");
             setPartialText("");
             setStage("interrupted");
+            return;
+          }
+
+          if (data.type === "thinking_preview" || data.type === "llm_answer_progress") {
+            if (data.turn_id !== playbackTurnIdRef.current || stoppedRef.current ||
+                !Number.isFinite(data.seconds) || data.seconds < 0) return;
+            const update: MetricState = data.type === "thinking_preview"
+              ? { thinkingTime: data.seconds } : { llmAnswerTime: data.seconds };
+            currentTurnMetricsRef.current = { ...currentTurnMetricsRef.current, ...update };
+            setMetrics((prev) => ({ ...prev, ...update }));
             return;
           }
 
@@ -763,6 +784,8 @@ function useTutorSocket(url: string) {
           }
 
           if (data.type === "error") {
+            currentTurnMetricsRef.current = { ...currentTurnMetricsRef.current, thinkingTime: null, llmAnswerTime: null };
+            setMetrics((prev) => ({ ...prev, thinkingTime: null, llmAnswerTime: null }));
             stopBrowserAudio();
             updateResponse({ type: "reset" });
             setError(data.message);
@@ -1542,9 +1565,11 @@ function LatencyCharts({ metrics, history }: { metrics: MetricState; history: Tu
   const measuredThinking = metrics.thinkingTime;
   // Thinking is included in first-answer TTFT. Do not double-count it.
   const thinkingValid = measuredThinking != null && Number.isFinite(measuredThinking)
-    && measuredThinking >= 0 && measuredThinking <= llmValue;
+    && measuredThinking >= 0 && (metrics.ttft == null || measuredThinking <= llmValue);
   const thinkingValue = thinkingValid ? measuredThinking : 0;
   const ttsValue = metrics.ttsFirstChunk ?? 0;
+  const answerValue = metrics.llmAnswerTime;
+  const answerAvailable = answerValue != null && Number.isFinite(answerValue) && answerValue >= 0;
 
   const latencyShareData = [
     {
@@ -1567,6 +1592,13 @@ function LatencyCharts({ metrics, history }: { metrics: MetricState; history: Tu
       available: metrics.ttft != null,
       value: Math.max(0, llmValue - thinkingValue),
       color: "#7c3aed",
+    },
+    {
+      name: "LLM answer",
+      description: "Elapsed time streaming the answer, including pauses",
+      available: answerAvailable,
+      value: answerAvailable ? answerValue : 0,
+      color: "#0d9488",
     },
     {
       name: "TTS",
