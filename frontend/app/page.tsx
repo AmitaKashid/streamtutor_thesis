@@ -65,6 +65,8 @@ interface MetricState {
   stt?: number;
   ragLatency?: number;
   ttft?: number;
+  thinkingTime?: number | null;
+  model?: string | null;
   ttsFirstChunk?: number;
   llmTotal?: number;
   ttsTotal?: number;
@@ -110,7 +112,7 @@ type ServerEvent =
   | { type: "transcript_final"; text: string }
   | { type: "user_transcript_final"; text: string }
   | { type: "barge_in_accepted"; text: string }
-  | { type: "tutor_turn_started"; turn_id: string; delivery_mode: "audio" | "text" }
+  | { type: "tutor_turn_started"; turn_id: string; delivery_mode: "audio" | "text"; model?: string | null }
   | { type: "text_interrupted"; turn_id: string }
   | { type: "audio_chunk"; turn_id: string; data: string; sample_rate: number; channels: number }
   | { type: "audio_done"; turn_id: string }
@@ -272,7 +274,7 @@ const isSttHallucinationText = (text: string) => {
   return substrings.some((phrase) => norm.includes(phrase));
 };
 
-function formatSeconds(value?: number) {
+function formatSeconds(value?: number | null) {
   if (value === undefined || value === null || Number.isNaN(value)) return "—";
   return `${value.toFixed(3)} s`;
 }
@@ -491,6 +493,9 @@ function useTutorSocket(url: string) {
               stopBrowserAudio(playbackTurnIdRef.current);
             }
             playbackTurnIdRef.current = data.turn_id;
+            const turnModel = data.model ?? null;
+            currentTurnMetricsRef.current = { ...currentTurnMetricsRef.current, model: turnModel, thinkingTime: null };
+            setMetrics((prev) => ({ ...prev, model: turnModel, thinkingTime: null }));
             deliveryModeRef.current = data.delivery_mode;
             streamEndedRef.current = false;
             receivedAudioRef.current = false;
@@ -768,6 +773,7 @@ function useTutorSocket(url: string) {
   const resetTurnMetrics = () => {
     currentTurnMetricsRef.current = {};
     hasRecordedCurrentTurnRef.current = false;
+    setMetrics({});
   };
 
   return {
@@ -1370,7 +1376,7 @@ function MetricsTable({ history }: { history: TurnMetricRecord[] }) {
                 </th>
 
                 <th
-                  colSpan={2}
+                  colSpan={4}
                   className={`${groupHeaderClass} bg-indigo-50 text-indigo-700`}
                 >
                   LLM
@@ -1399,7 +1405,9 @@ function MetricsTable({ history }: { history: TurnMetricRecord[] }) {
                 <th className={columnHeaderClass}>RAG latency</th>
                 <th className={columnHeaderClass}>Prompt chars</th>
                 <th className={columnHeaderClass}>Conversation chars</th>
-                <th className={columnHeaderClass}>LLM TTFT</th>
+                <th className={columnHeaderClass}>Model</th>
+                <th className={columnHeaderClass} title="First reasoning chunk to first answer chunk; client-observed.">Thinking</th>
+                <th className={columnHeaderClass} title="Time until the first answer text is available, including any thinking.">LLM TTFT (answer)</th>
                 <th className={columnHeaderClass}>LLM total</th>
                 <th className={columnHeaderClass}>TTS first chunk</th>
                 <th className={columnHeaderClass}>First audio</th>
@@ -1411,7 +1419,7 @@ function MetricsTable({ history }: { history: TurnMetricRecord[] }) {
               {history.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={10}
+                    colSpan={12}
                     className="px-4 py-8 text-center text-sm font-medium text-slate-400"
                   >
                     Metrics will appear after the first completed turn.
@@ -1443,6 +1451,12 @@ function MetricsTable({ history }: { history: TurnMetricRecord[] }) {
                       {record.metrics.conversationChars?.toLocaleString() ?? "—"}
                     </td>
 
+                    <td className={cellClass}>
+                      {LLM_MODELS.find((item) => item.value === record.metrics.model)?.label ?? record.metrics.model ?? "—"}
+                    </td>
+                    <td className={numericCellClass}>
+                      {formatSeconds(record.metrics.thinkingTime)}
+                    </td>
                     <td className="px-4 py-3 text-sm font-bold tabular-nums text-blue-700">
                       {formatSeconds(record.metrics.ttft)}
                     </td>
@@ -1476,6 +1490,11 @@ function MetricsTable({ history }: { history: TurnMetricRecord[] }) {
 function LatencyCharts({ metrics, history }: { metrics: MetricState; history: TurnMetricRecord[] }) {
   const sttValue = metrics.stt ?? 0;
   const llmValue = metrics.ttft ?? 0;
+  const measuredThinking = metrics.thinkingTime;
+  // Thinking is included in first-answer TTFT. Do not double-count it.
+  const thinkingValid = measuredThinking != null && Number.isFinite(measuredThinking)
+    && measuredThinking >= 0 && measuredThinking <= llmValue;
+  const thinkingValue = thinkingValid ? measuredThinking : 0;
   const ttsValue = metrics.ttsFirstChunk ?? 0;
 
   const latencyShareData = [
@@ -1486,9 +1505,15 @@ function LatencyCharts({ metrics, history }: { metrics: MetricState; history: Tu
       color: "#2563eb",
     },
     {
-      name: "LLM",
-      description: "Language model",
-      value: llmValue,
+      name: "Thinking",
+      description: "Reasoning stream",
+      value: thinkingValue,
+      color: "#a855f7",
+    },
+    {
+      name: "LLM wait",
+      description: "Other time to first answer",
+      value: Math.max(0, llmValue - thinkingValue),
       color: "#7c3aed",
     },
     {
@@ -1515,7 +1540,9 @@ function LatencyCharts({ metrics, history }: { metrics: MetricState; history: Tu
       </div>
       <div className="grid min-h-0 flex-1 grid-rows-[0.95fr_1.25fr] gap-4">
         <div className="flex min-h-0 flex-col rounded-2xl border border-slate-100 bg-slate-50 p-3">
-          <div className="mb-3 font-semibold text-slate-900">STT / LLM / TTS share</div>
+          <div className="mb-1 font-semibold text-slate-900">First response latency components</div>
+          <div className="text-xs text-slate-600">Latest turn: {LLM_MODELS.find((item) => item.value === metrics.model)?.label ?? metrics.model ?? "—"}</div>
+          <p className="mb-3 text-xs text-slate-500">Approximate shares of available timings; components may overlap. Thinking is part of LLM TTFT.</p>
           <div className="flex min-h-[260px] flex-col items-center justify-center gap-6 sm:flex-row">
             <div className="h-[260px] w-[260px] shrink-0">
               <ResponsiveContainer>
@@ -1551,6 +1578,7 @@ function LatencyCharts({ metrics, history }: { metrics: MetricState; history: Tu
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-slate-800">{item.name}</div>
                     <div className="text-xs text-slate-500">{item.description}</div>
+                    <div className="text-xs tabular-nums text-slate-500">{item.name === "Thinking" && !thinkingValid ? "—" : formatSeconds(item.value)}</div>
                   </div>
                 </div>
               ))}

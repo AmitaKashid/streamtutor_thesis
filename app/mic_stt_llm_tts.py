@@ -763,7 +763,8 @@ def run_llm_tts_pipeline(
 
     tts_enabled = getattr(args, "tts_enabled", True)
     emit({"type": "tutor_turn_started", "turn_id": evaluation_turn_id,
-          "delivery_mode": "audio" if tts_enabled else "text"})
+          "delivery_mode": "audio" if tts_enabled else "text",
+          "model": getattr(args, "llm_model", None)})
     print_effective_config(args)
     emit({
         "type": "config_applied",
@@ -1185,6 +1186,11 @@ def run_llm_tts_pipeline(
     llm_request_start_t = None
     llm_first_text_t = None
     llm_stream_done_t = None
+    thinking_time_s = None
+
+    def record_thinking_time(seconds):
+        nonlocal thinking_time_s
+        thinking_time_s = seconds
 
     tts_proc_total = 0.0
     chunks_count = 0
@@ -1261,6 +1267,7 @@ def run_llm_tts_pipeline(
                     llm_prompt, playback.interrupted,
                     thinking_enabled=getattr(args, "thinking_enabled", True),
                     on_reasoning=lambda text: emit({"type": "thinking_chunk", "turn_id": evaluation_turn_id, "text": text}),
+                    on_thinking_time=record_thinking_time,
                 )
             else:
                 stream = (llm.stream_with_cancel(llm_prompt, playback.interrupted)
@@ -1684,6 +1691,7 @@ def run_llm_tts_pipeline(
         "data": {
             "stt": stt_time,
             "ttft": llm_ttft_real,
+            "thinkingTime": thinking_time_s if response_status == "completed" else None,
             "ttsFirstChunk": tts_actual_start_latency,
 
             "llmTotal": llm_time,
