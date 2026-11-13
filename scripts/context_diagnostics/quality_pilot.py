@@ -21,6 +21,7 @@ from prompts.registry import compose_prompt
 from scripts.context_diagnostics.probe import SYSTEM
 
 DEFAULT_DATA = ROOT / 'data/judge_evaluation/streamtutor_judge_dataset_v3/questions.jsonl'
+TEACHING_STYLE = 'socratic'  # Fixed across all conditions for a controlled pilot.
 
 
 def selected_cases(path):
@@ -58,7 +59,7 @@ def make_prompt(case, history_limit):
         question = ('Previous conversation between the user and assistant:\n' + '\n\n'.join(blocks)
                     + '\n\nCurrent user question:\n' + question
                     + '\n\nUse the previous conversation as context. Answer the current user question directly.')
-    prompt = compose_prompt(style=case['teaching_style'], user_query=question,
+    prompt = compose_prompt(style=TEACHING_STYLE, user_query=question,
                             context=case['retrieval']['context'])
     return prompt, len(selected)
 
@@ -102,6 +103,12 @@ def build_schedule(cases, seed):
     return schedule
 
 
+def prepare_schedule(cases, seed):
+    # Validate every prompt before creating output or making any model requests.
+    return [(case, limit, *make_prompt(case, limit))
+            for case, limit in build_schedule(cases, seed)]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--url', required=True)
@@ -114,17 +121,18 @@ def main():
         cases = selected_cases(args.dataset)
         raw = Path(args.dataset).read_bytes()
         dataset_hash = hashlib.sha256(raw).hexdigest()
-        schedule = build_schedule(cases, args.seed)
+        schedule = prepare_schedule(cases, args.seed)
         failures = 0
         with open(args.output, 'x', encoding='utf-8') as out:
-            print(f'Exploratory pilot: {len(cases)} examples, {len(schedule)} requests. Fixed curated evidence; cache requested off.', flush=True)
-            for case, limit in schedule:
-                prompt, actual = make_prompt(case, limit)
+            print(f'Exploratory pilot: {len(cases)} examples, {len(schedule)} requests. Fixed curated evidence; style={TEACHING_STYLE}; cache requested off.', flush=True)
+            for case, limit, prompt, actual in schedule:
                 row = {'schema': 'context-quality-pilot-v1', 'question_id': case['question_id'],
                        'conversation_id': case['conversation_id'], 'context_dependency': case['context_dependency'],
                        'history_limit': limit, 'history_turns_sent': actual, 'model_label': args.model_label,
                        'dataset_sha256': dataset_hash, 'seed': args.seed, 'rag_mode': 'fixed_curated_evidence',
-                       'thinking_enabled': False, 'temperature': 0, 'cache_prompt_requested': False,
+                       'thinking_enabled': False, 'teaching_style': TEACHING_STYLE,
+                       'dataset_teaching_style': case['teaching_style'],
+                       'temperature': 0, 'cache_prompt_requested': False,
                        'max_output_tokens': 1024, 'prompt_sha256': hashlib.sha256(prompt.encode()).hexdigest(),
                        'question': case['user_utterance'], 'full_history': case['conversation_history'],
                        'evidence': case['retrieval']['context'], 'reference_key_points': case['reference_key_points']}

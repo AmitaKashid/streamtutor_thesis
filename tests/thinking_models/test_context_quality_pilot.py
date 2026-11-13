@@ -41,10 +41,28 @@ class QualityPilotTests(unittest.TestCase):
             turns = memory.snapshot()[-limit:] if limit else []
             history, _ = memory.format_history_snapshot(turns)
             query = memory.build_contextual_user_query(case['user_utterance'], history=history)
-            expected = compose_prompt(style=case['teaching_style'], user_query=query, context=case['retrieval']['context'])
+            expected = compose_prompt(style=pilot.TEACHING_STYLE, user_query=query, context=case['retrieval']['context'])
             prompt, sent = pilot.make_prompt(case, limit)
             self.assertEqual(prompt, expected)
             self.assertEqual(sent, limit)
+
+    def test_all_selected_prompts_are_preflighted_with_supported_style(self):
+        cases = pilot.selected_cases(pilot.DEFAULT_DATA)
+        self.assertTrue(any(case['teaching_style'] == 'step_by_step' for case in cases))
+        prepared = pilot.prepare_schedule(cases, 42)
+        self.assertEqual(len(prepared), 17)
+        for case, limit, prompt, actual in prepared:
+            self.assertTrue(prompt)
+            self.assertEqual(actual, limit)
+
+    def test_preflight_rejects_a_bad_case_before_any_request(self):
+        cases = pilot.selected_cases(pilot.DEFAULT_DATA)
+        broken = [dict(case) for case in cases]
+        del broken[-1]['user_utterance']
+        with patch.object(pilot.requests, 'post') as post:
+            with self.assertRaises(KeyError):
+                pilot.prepare_schedule(broken, 42)
+            post.assert_not_called()
 
     def test_stream_captures_text_completion_and_server_metrics(self):
         with patch.object(pilot.requests, 'post', return_value=Response()) as post:
