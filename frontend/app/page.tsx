@@ -1325,24 +1325,6 @@ function ControlDock({
       )}
     >
       <div className="flex flex-col gap-3 md:flex-row md:items-center">
-        <button
-          type="button"
-          disabled={!connected}
-          onClick={onStartMic}
-          aria-label={listening ? "Stop microphone" : "Start microphone"}
-          aria-pressed={listening}
-          className={classNames(
-            "inline-flex h-14 min-w-14 items-center justify-center rounded-2xl font-semibold shadow-sm transition",
-            !connected
-              ? "cursor-not-allowed bg-slate-200 text-slate-400"
-              : listening
-                ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                : "bg-blue-600 text-white hover:bg-blue-700",
-          )}
-        >
-          <Mic className="h-5 w-5" />
-        </button>
-
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -1356,19 +1338,39 @@ function ControlDock({
           className="h-14 flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-100"
         />
 
-        <button
-          type="button"
-          aria-label={responseActive ? "Stop response" : "Send question"}
-          title={responseActive ? "Stop response" : "Send question"}
-          disabled={!connected || (responseActive ? responseStopping : !text.trim())}
-          onClick={() => {
-            if (responseActive) onStop();
-            else if (text.trim() && onSendText(text.trim())) setText("");
-          }}
-          className="inline-flex h-12 w-12 shrink-0 items-center justify-center self-end rounded-full bg-blue-600 text-white shadow-sm transition hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 md:self-center"
-        >
-          {responseActive ? <Square className="h-4 w-4 fill-current" aria-hidden="true" /> : <ArrowUp className="h-5 w-5" aria-hidden="true" />}
-        </button>
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            disabled={!connected}
+            onClick={onStartMic}
+            aria-label={listening ? "Stop microphone" : "Start microphone"}
+            aria-pressed={listening}
+            className={classNames(
+              "inline-flex h-12 w-12 shrink-0 items-center justify-center self-end rounded-full font-semibold shadow-sm transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 md:self-center",
+              !connected
+                ? "cursor-not-allowed bg-slate-200 text-slate-400"
+                : listening
+                  ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                  : "bg-blue-600 text-white hover:bg-blue-700",
+            )}
+          >
+            <Mic className="h-5 w-5" />
+          </button>
+
+          <button
+            type="button"
+            aria-label={responseActive ? "Stop response" : "Send question"}
+            title={responseActive ? "Stop response" : "Send question"}
+            disabled={!connected || (responseActive ? responseStopping : !text.trim())}
+            onClick={() => {
+              if (responseActive) onStop();
+              else if (text.trim() && onSendText(text.trim())) setText("");
+            }}
+            className="inline-flex h-12 w-12 shrink-0 items-center justify-center self-end rounded-full bg-blue-600 text-white shadow-sm transition hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 md:self-center"
+          >
+            {responseActive ? <Square className="h-4 w-4 fill-current" aria-hidden="true" /> : <ArrowUp className="h-5 w-5" aria-hidden="true" />}
+          </button>
+        </div>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
         <span className="font-semibold text-slate-700">Status:</span>
@@ -1635,12 +1637,6 @@ function LatencyCharts({ metrics, history }: { metrics: MetricState; history: Tu
         <div className="flex min-h-0 flex-col rounded-2xl border border-slate-100 bg-slate-50 p-3">
           <div className="mb-3 font-semibold text-slate-900">LLM TTFT vs conversation context</div>
           <div className="relative mx-auto aspect-square h-[430px] w-[430px] max-h-full max-w-full">
-            {ttftData.length === 0 ? (
-              <div className="absolute inset-0 flex items-center justify-center rounded-2xl border border-dashed border-slate-200 text-center text-sm font-medium text-slate-400">
-                One point will appear after each completed turn.
-              </div>
-            ) : null}
-
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
                 data={ttftData}
