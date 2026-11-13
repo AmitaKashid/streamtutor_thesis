@@ -80,6 +80,13 @@ interface MetricState {
   promptWords?: number;
   conversationTurns?: number;
   conversationChars?: number;
+  serverPromptTokens?: number;
+  serverCachedTokens?: number;
+  serverProcessedPromptTokens?: number;
+  serverPrefillSeconds?: number;
+  serverOutputTokens?: number;
+  serverDecodeSeconds?: number;
+  serverDecodeTokensPerSecond?: number;
 }
 
 interface TurnMetricRecord {
@@ -1528,7 +1535,7 @@ function MetricsTable({ history }: { history: TurnMetricRecord[] }) {
                 </th>
 
                 <th
-                  colSpan={4}
+                  colSpan={10}
                   className={`${groupHeaderClass} bg-indigo-50 text-indigo-700`}
                 >
                   LLM
@@ -1558,6 +1565,12 @@ function MetricsTable({ history }: { history: TurnMetricRecord[] }) {
                 <th className={columnHeaderClass}>Prompt chars</th>
                 <th className={columnHeaderClass}>Conversation chars</th>
                 <th className={columnHeaderClass}>Model</th>
+                <th className={columnHeaderClass} title="Full tokenized prompt, including system and chat template; measured by the model server.">Prompt tokens</th>
+                <th className={columnHeaderClass} title="Prompt tokens reused from the server's prefix cache.">Cached tokens</th>
+                <th className={columnHeaderClass} title="Server prompt-processing time; excludes queue and network. Cached tokens are not reprocessed.">Prefill</th>
+                <th className={columnHeaderClass} title="All generated tokens, including thinking when enabled.">Output tokens</th>
+                <th className={columnHeaderClass} title="Server-reported generation time, including reasoning and answer tokens.">Decode</th>
+                <th className={columnHeaderClass} title="Server-reported generated token rate; includes reasoning when enabled.">Decode tok/s</th>
                 <th className={columnHeaderClass} title="First reasoning chunk to first answer chunk; client-observed.">Thinking</th>
                 <th className={columnHeaderClass} title="Time until the first answer text is available, including any thinking.">LLM TTFT (answer)</th>
                 <th className={columnHeaderClass}>LLM total</th>
@@ -1571,7 +1584,7 @@ function MetricsTable({ history }: { history: TurnMetricRecord[] }) {
               {history.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={12}
+                    colSpan={18}
                     className="px-4 py-8 text-center text-sm font-medium text-slate-400"
                   >
                     Metrics will appear after the first completed turn.
@@ -1606,6 +1619,12 @@ function MetricsTable({ history }: { history: TurnMetricRecord[] }) {
                     <td className={cellClass}>
                       {LLM_MODELS.find((item) => item.value === record.metrics.model)?.label ?? record.metrics.model ?? "—"}
                     </td>
+                    <td className={numericCellClass}>{record.metrics.serverPromptTokens?.toLocaleString() ?? "—"}</td>
+                    <td className={numericCellClass}>{record.metrics.serverCachedTokens?.toLocaleString() ?? "—"}</td>
+                    <td className={numericCellClass}>{formatSeconds(record.metrics.serverPrefillSeconds)}</td>
+                    <td className={numericCellClass}>{record.metrics.serverOutputTokens?.toLocaleString() ?? "—"}</td>
+                    <td className={numericCellClass}>{formatSeconds(record.metrics.serverDecodeSeconds)}</td>
+                    <td className={numericCellClass}>{record.metrics.serverDecodeTokensPerSecond?.toFixed(1) ?? "—"}</td>
                     <td className={numericCellClass}>
                       {formatSeconds(record.metrics.thinkingTime)}
                     </td>

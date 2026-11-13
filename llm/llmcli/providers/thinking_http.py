@@ -4,6 +4,7 @@ import os
 import time
 import requests
 from app.thinking_stream import ThinkingStream, ThinkingStreamError, ReasoningNotObserved
+from app.inference_metrics import server_timing_metrics
 from .base import GenerationResult
 
 
@@ -23,21 +24,21 @@ class ThinkingHTTPProvider:
     def stream(self, prompt):
         yield from self.stream_with_cancel(prompt, None)
 
-    def stream_with_cancel(self, prompt, cancel_event, *, thinking_enabled=True, on_reasoning=None, on_thinking_time=None, on_thinking_preview=None, reasoning_budget_tokens=None):
+    def stream_with_cancel(self, prompt, cancel_event, *, thinking_enabled=True, on_reasoning=None, on_thinking_time=None, on_thinking_preview=None, reasoning_budget_tokens=None, on_server_metrics=None):
         # Settings and callbacks belong to this request, not the cached provider.
         # The event belongs to this request, not the cached provider instance.
         for attempt in range(2):
             if cancel_event is not None and cancel_event.is_set():
                 return
             try:
-                yield from self._stream_once(prompt, cancel_event, thinking_enabled=thinking_enabled, on_reasoning=on_reasoning, on_thinking_time=on_thinking_time, on_thinking_preview=on_thinking_preview, reasoning_budget_tokens=reasoning_budget_tokens)
+                yield from self._stream_once(prompt, cancel_event, thinking_enabled=thinking_enabled, on_reasoning=on_reasoning, on_thinking_time=on_thinking_time, on_thinking_preview=on_thinking_preview, reasoning_budget_tokens=reasoning_budget_tokens, on_server_metrics=on_server_metrics)
                 return
             except ReasoningNotObserved:
                 if attempt or (cancel_event is not None and cancel_event.is_set()):
                     raise
                 print('[THINKING RETRY] no separated reasoning; retrying once', flush=True)
 
-    def _stream_once(self, prompt, cancel_event=None, *, thinking_enabled=True, on_reasoning=None, on_thinking_time=None, on_thinking_preview=None, reasoning_budget_tokens=None):
+    def _stream_once(self, prompt, cancel_event=None, *, thinking_enabled=True, on_reasoning=None, on_thinking_time=None, on_thinking_preview=None, reasoning_budget_tokens=None, on_server_metrics=None):
         body = {'messages': [{'role': 'system', 'content': 'You are a concise AI tutor for data mining. Use provided course context when available. Answer clearly and briefly.'}, {'role': 'user', 'content': prompt}], 'stream': True, 'max_tokens': 8192, 'temperature': 1.0, 'top_p': 0.95, 'chat_template_kwargs': {'enable_thinking': thinking_enabled}, 'reasoning_format': 'deepseek'}
         budget = os.environ.get('LLMTUTOR_THINKING_BUDGET', '').strip()
         if reasoning_budget_tokens is not None:
@@ -54,6 +55,7 @@ class ThinkingHTTPProvider:
         first_content = None
         reasoning_chars = 0
         thinking_preview_sent = False
+        server_metrics = {}
         with requests.post(self.base_url + '/v1/chat/completions', json=body, stream=True, timeout=(3, self.read_timeout)) as response:
             response.raise_for_status()
             # SSE is UTF-8. Decode bytes explicitly; requests otherwise may
@@ -70,6 +72,8 @@ class ThinkingHTTPProvider:
                 data = line[5:].strip()
                 if data == '[DONE]':
                     parser.end()
+                    if on_server_metrics and server_metrics:
+                        on_server_metrics(server_metrics)
                     # Report a completed request only. Both timestamps use the
                     # same client monotonic clock and exclude prompt prefill.
                     if on_thinking_time and first_reasoning is not None and first_content is not None:
@@ -84,6 +88,9 @@ class ThinkingHTTPProvider:
                     return
                 try:
                     event = json.loads(data)
+                    # b11556 attaches the final server counters to the final
+                    # chat-completion chunk. Other servers may omit them.
+                    server_metrics.update(server_timing_metrics(event.get('timings')))
                     choices = event.get('choices') or []
                     if choices:
                         delta = choices[0].get('delta') or {}
