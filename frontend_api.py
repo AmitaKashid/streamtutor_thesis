@@ -513,6 +513,7 @@ def build_pipeline_args(config: dict | None = None):
         browser_audio=True,
         tts_enabled=config.get("tts_enabled", True) if isinstance(config.get("tts_enabled", True), bool) else True,
         thinking_enabled=config.get("thinking_enabled", True) if isinstance(config.get("thinking_enabled", True), bool) else True,
+        reasoning_budget_tokens=config.get("reasoning_budget_tokens") if type(config.get("reasoning_budget_tokens")) is int and config.get("reasoning_budget_tokens") in (256, 512, 1024) else None,
         tts_backend=tts_backend,
         qwen3_speaker=qwen3_speaker,
         qwen3_language=qwen3_language,

@@ -399,6 +399,7 @@ def effective_config_payload(args) -> dict:
     """
     return {
         "llm_model": getattr(args, "llm_model", None),
+        "reasoning_budget_tokens": getattr(args, "reasoning_budget_tokens", None),
         "llm_backend": getattr(args, "llm_backend", None),
         "llm_server_url": getattr(args, "llm_server_url", None),
         "tts_backend": getattr(args, "tts_backend", None),
@@ -1289,6 +1290,7 @@ def run_llm_tts_pipeline(
                 stream = llm.stream_with_cancel(
                     llm_prompt, playback.interrupted,
                     thinking_enabled=getattr(args, "thinking_enabled", True),
+                    reasoning_budget_tokens=getattr(args, "reasoning_budget_tokens", None),
                     on_reasoning=lambda text: emit({"type": "thinking_chunk", "turn_id": evaluation_turn_id, "text": text}),
                     on_thinking_time=record_thinking_time,
                     on_thinking_preview=preview_thinking_time,
@@ -1718,6 +1720,7 @@ def run_llm_tts_pipeline(
             "stt": stt_time,
             "ttft": llm_ttft_real,
             "thinkingTime": thinking_time_s if response_status == "completed" else None,
+            "reasoningBudgetTokens": getattr(args, "reasoning_budget_tokens", None) if getattr(args, "thinking_enabled", True) else None,
             "llmAnswerTime": (llm_stream_done_t - llm_first_text_t
                               if response_status == "completed" and llm_stream_done_t is not None
                               and llm_first_text_t is not None else None),
