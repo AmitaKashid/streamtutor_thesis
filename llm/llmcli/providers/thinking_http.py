@@ -23,27 +23,28 @@ class ThinkingHTTPProvider:
     def stream(self, prompt):
         yield from self.stream_with_cancel(prompt, None)
 
-    def stream_with_cancel(self, prompt, cancel_event):
+    def stream_with_cancel(self, prompt, cancel_event, *, thinking_enabled=True, on_reasoning=None):
+        # Settings and callbacks belong to this request, not the cached provider.
         # The event belongs to this request, not the cached provider instance.
         for attempt in range(2):
             if cancel_event is not None and cancel_event.is_set():
                 return
             try:
-                yield from self._stream_once(prompt, cancel_event)
+                yield from self._stream_once(prompt, cancel_event, thinking_enabled=thinking_enabled, on_reasoning=on_reasoning)
                 return
             except ReasoningNotObserved:
                 if attempt or (cancel_event is not None and cancel_event.is_set()):
                     raise
                 print('[THINKING RETRY] no separated reasoning; retrying once', flush=True)
 
-    def _stream_once(self, prompt, cancel_event=None):
-        body = {'messages': [{'role': 'system', 'content': 'You are a concise AI tutor for data mining. Use provided course context when available. Answer clearly and briefly.'}, {'role': 'user', 'content': prompt}], 'stream': True, 'max_tokens': 8192, 'temperature': 1.0, 'top_p': 0.95, 'chat_template_kwargs': {'enable_thinking': True}, 'reasoning_format': 'deepseek'}
+    def _stream_once(self, prompt, cancel_event=None, *, thinking_enabled=True, on_reasoning=None):
+        body = {'messages': [{'role': 'system', 'content': 'You are a concise AI tutor for data mining. Use provided course context when available. Answer clearly and briefly.'}, {'role': 'user', 'content': prompt}], 'stream': True, 'max_tokens': 8192, 'temperature': 1.0, 'top_p': 0.95, 'chat_template_kwargs': {'enable_thinking': thinking_enabled}, 'reasoning_format': 'deepseek'}
         budget = os.environ.get('LLMTUTOR_THINKING_BUDGET', '').strip()
-        if budget:
+        if budget and thinking_enabled:
             if not budget.isdigit() or int(budget) < 1:
                 raise ValueError('LLMTUTOR_THINKING_BUDGET must be a positive integer')
             body['reasoning_budget_tokens'] = int(budget)
-        parser = ThinkingStream()
+        parser = ThinkingStream(require_reasoning=thinking_enabled)
         started = time.perf_counter()
         first_reasoning = None
         first_content = None
@@ -86,6 +87,8 @@ class ThinkingHTTPProvider:
                         if isinstance(content, str) and content and first_content is None:
                             first_content = time.perf_counter() - started
                     value = parser.feed(event)
+                    if thinking_enabled and on_reasoning and choices and reasoning:
+                        on_reasoning(reasoning)
                 except (ValueError, TypeError, KeyError) as exc:
                     raise ThinkingStreamError('Invalid model-server stream') from exc
                 if value:

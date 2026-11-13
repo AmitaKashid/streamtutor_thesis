@@ -48,6 +48,7 @@ interface Message {
   id: string;
   role: Role;
   text: string;
+  reasoning?: string;
   streaming?: boolean;
   timestamp: string;
 }
@@ -87,6 +88,7 @@ interface TutorConfig {
   llmModel: string;
   ttsBackend: string;
   ttsEnabled: boolean;
+  thinkingEnabled: boolean;
   qwen3Speaker: string;
   qwen3Language: string;
   ragEnabled: boolean;
@@ -99,6 +101,7 @@ interface TutorConfig {
 type ServerEvent =
   | { type: "stage"; value: Stage }
   | { type: "llm_chunk"; text: string }
+  | { type: "thinking_chunk"; turn_id: string; text: string }
   | { type: "assistant_done" }
   | { type: "sources"; data: SourceItem[] }
   | { type: "metrics"; data: MetricState }
@@ -202,6 +205,7 @@ const defaultConfig: TutorConfig = {
   llmModel: "llama3_8b_q4",
   ttsBackend: "kokoro",
   ttsEnabled: true,
+  thinkingEnabled: true,
   qwen3Speaker: "Vivian",
   qwen3Language: "en",
   ragEnabled: true,
@@ -279,6 +283,7 @@ function toBackendConfig(config: TutorConfig) {
     llm_model: config.llmModel,
     tts_backend: config.ttsBackend,
     tts_enabled: config.ttsEnabled,
+    thinking_enabled: config.thinkingEnabled,
     qwen3_speaker: config.qwen3Speaker,
     qwen3_language: config.qwen3Language,
     rag: config.ragEnabled,
@@ -504,7 +509,7 @@ function useTutorSocket(url: string) {
             setMessages((prev) => {
               const next = [...prev];
               const last = next[next.length - 1];
-              const message: Message = { id: messageId, role: "assistant", text: data.text, streaming: false, timestamp: last?.timestamp || new Date().toLocaleTimeString() };
+              const message: Message = { id: messageId, role: "assistant", text: data.text, reasoning: last?.role === "assistant" && last.streaming ? last.reasoning : undefined, streaming: false, timestamp: last?.timestamp || new Date().toLocaleTimeString() };
               if (last?.role === "assistant" && last.streaming) next[next.length - 1] = message;
               else next.push(message);
               return next;
@@ -624,6 +629,21 @@ function useTutorSocket(url: string) {
             setCapturedText("");
             setPartialText("");
             setStage("interrupted");
+            return;
+          }
+
+          if (data.type === "thinking_chunk") {
+            if (data.turn_id !== playbackTurnIdRef.current || stoppedRef.current) return;
+            setMessages((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last?.role === "assistant" && last.streaming) {
+                next[next.length - 1] = { ...last, reasoning: (last.reasoning || "") + data.text };
+              } else {
+                next.push({ id: `assistant_${data.turn_id}`, role: "assistant", text: "", reasoning: data.text, streaming: true, timestamp: new Date().toLocaleTimeString() });
+              }
+              return next;
+            });
             return;
           }
 
@@ -1046,6 +1066,12 @@ function MessageBubble({ message }: { message: Message }) {
         <div className={classNames("mb-1 text-xs font-semibold", isUser ? "text-blue-100" : "text-slate-500")}>
           {isUser ? "You" : "Tutor"} · {message.timestamp}
         </div>
+        {message.reasoning ? (
+          <details open={message.streaming && !message.text} className="mb-3 rounded-xl bg-slate-50 p-3 text-slate-600">
+            <summary className="cursor-pointer text-xs font-semibold">Thinking</summary>
+            <div className="mt-2 whitespace-pre-wrap text-sm leading-6">{message.reasoning}</div>
+          </details>
+        ) : null}
         <div className="whitespace-pre-wrap text-sm leading-7">{message.text}</div>
         {message.streaming ? (
           <div className="mt-3 flex items-center gap-1 text-blue-500">
@@ -1107,6 +1133,9 @@ function ConversationPanel({
   listening,
   speechEnabled,
   onSpeechChange,
+  thinkingEnabled,
+  thinkingAvailable,
+  onThinkingChange,
   embedded = false,
 }: {
   messages: Message[];
@@ -1115,6 +1144,9 @@ function ConversationPanel({
   listening: boolean;
   speechEnabled: boolean;
   onSpeechChange: (enabled: boolean) => void;
+  thinkingEnabled: boolean;
+  thinkingAvailable: boolean;
+  onThinkingChange: (enabled: boolean) => void;
   embedded?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -1146,6 +1178,13 @@ function ConversationPanel({
               Voice-first tutoring session
             </h2>
           </div>
+          <button type="button" role="switch" aria-label="Thinking mode" aria-checked={thinkingAvailable && thinkingEnabled}
+            disabled={!thinkingAvailable} onClick={() => onThinkingChange(!thinkingEnabled)}
+            className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2 text-left shadow-sm disabled:opacity-50">
+            <span><span className="block text-sm font-semibold text-slate-800">Thinking</span>
+              <span className="block text-xs text-slate-500">{thinkingAvailable ? "Applies next turn" : "Unavailable for this server"}</span></span>
+            <span aria-hidden="true" className={classNames("relative h-6 w-11 rounded-full", thinkingAvailable && thinkingEnabled ? "bg-blue-600" : "bg-slate-300")}><span className={classNames("absolute top-1 h-4 w-4 rounded-full bg-white shadow", thinkingAvailable && thinkingEnabled ? "left-6" : "left-1")} /></span>
+          </button>
           <button
             type="button"
             role="switch"
@@ -1663,6 +1702,11 @@ export default function Page() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected, config.ttsEnabled]);
 
+  useEffect(() => {
+    if (connected) send({ action: "set_thinking", thinking_enabled: config.thinkingEnabled });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, config.thinkingEnabled]);
+
   const shouldKeepListeningRef = useRef(false);
   const assistantOutputActiveRef = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -1983,6 +2027,9 @@ export default function Page() {
                   listening={listening}
                   speechEnabled={config.ttsEnabled}
                   onSpeechChange={(ttsEnabled) => setConfig((c) => ({ ...c, ttsEnabled }))}
+                  thinkingEnabled={config.thinkingEnabled}
+                  thinkingAvailable={["gemma4_e4b_thinking", "bonsai2_9b_thinking"].includes(config.llmModel)}
+                  onThinkingChange={(thinkingEnabled) => setConfig((c) => ({ ...c, thinkingEnabled }))}
                   embedded
                 />
 

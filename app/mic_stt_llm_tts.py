@@ -1256,8 +1256,15 @@ def run_llm_tts_pipeline(
             # Start timing immediately before the actual LLM stream request.
             llm_request_start_t = perf_counter()
 
-            stream = (llm.stream_with_cancel(llm_prompt, playback.interrupted)
-                      if hasattr(llm, "stream_with_cancel") else llm.stream(llm_prompt))
+            if hasattr(llm, "stream_with_cancel") and args.llm_model in {"gemma4_e4b_thinking", "bonsai2_9b_thinking"}:
+                stream = llm.stream_with_cancel(
+                    llm_prompt, playback.interrupted,
+                    thinking_enabled=getattr(args, "thinking_enabled", True),
+                    on_reasoning=lambda text: emit({"type": "thinking_chunk", "turn_id": evaluation_turn_id, "text": text}),
+                )
+            else:
+                stream = (llm.stream_with_cancel(llm_prompt, playback.interrupted)
+                          if hasattr(llm, "stream_with_cancel") else llm.stream(llm_prompt))
             for piece in stream:
                 if llm_first_text_t is None and piece.strip():
                     llm_first_text_t = perf_counter()
