@@ -785,6 +785,8 @@ async def websocket_endpoint(websocket: WebSocket):
     playback = PlaybackControl()
     pipeline_active = threading.Event()
     pipeline_lock = threading.Lock()
+    request_cancel_lock = threading.Lock()
+    request_cancel_events: set[threading.Event] = set()
     tts_busy = threading.Event()
     drain_after_tts = threading.Event()
 
@@ -1188,6 +1190,10 @@ async def websocket_endpoint(websocket: WebSocket):
         request_tts_engine = tts_engine
         request_retriever = retriever
         request_judge = None if _runtime_v1_bridge is not None else _runtime_evaluator
+        request_cancel_event = threading.Event()
+        request_turn_id = f"tutor-{uuid.uuid4().hex}"
+        with request_cancel_lock:
+            request_cancel_events.add(request_cancel_event)
 
         def _job():
             # Only one pipeline may use the shared playback state at a time.
@@ -1220,6 +1226,8 @@ async def websocket_endpoint(websocket: WebSocket):
                         drain_after_tts=drain_after_tts,
                         interruption_text=interruption_text,
                         interrupted_chunks=interrupted_chunks,
+                        request_cancel_event=request_cancel_event,
+                        evaluation_turn_id=request_turn_id,
                         event_cb=emit_from_thread,
                     )
 
@@ -1230,6 +1238,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     })
 
                 finally:
+                    with request_cancel_lock:
+                        request_cancel_events.discard(request_cancel_event)
                     emit_from_thread({
                         "type": "metrics",
                         "data": {
@@ -1240,6 +1250,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
                     emit_from_thread({
                         "type": "assistant_done",
+                        "turn_id": request_turn_id,
                     })
 
                     emit_from_thread({
@@ -1698,6 +1709,9 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
             if action == "interrupt":
+                with request_cancel_lock:
+                    for request_cancel_event in request_cancel_events:
+                        request_cancel_event.set()
                 playback.stop_now()
                 cancel_all_browser_delivery()
                 browser_audio_active.clear()

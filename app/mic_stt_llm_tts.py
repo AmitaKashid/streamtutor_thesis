@@ -734,6 +734,8 @@ def run_llm_tts_pipeline(
     drain_after_tts: threading.Event | None = None,
     interruption_text: str | None = None,
     interrupted_chunks: list[str] | None = None,
+    request_cancel_event: threading.Event | None = None,
+    evaluation_turn_id: str | None = None,
 ) -> None:
     """
     Shared post-STT pipeline for both mic mode and file mode:
@@ -742,10 +744,14 @@ def run_llm_tts_pipeline(
     For interruption mode:
       interruption_text + last spoken chunks -> (RAG) -> prompt -> LLM -> TTS
     """
-    evaluation_turn_id = f"tutor-{uuid.uuid4().hex}"
+    evaluation_turn_id = evaluation_turn_id or f"tutor-{uuid.uuid4().hex}"
     evaluation_conversation_id = conversation_id or f"cli-{uuid.uuid4().hex}"
     norm = transcript.lower().strip(" .!?")
     playback.reset_interrupt()
+    # Preserve a stop request received before this worker acquired the lock.
+    if request_cancel_event is not None and request_cancel_event.is_set():
+        playback.interrupted.set()
+        return
     playback.clear_interrupt_snapshot()
 
     # Give streaming TTS engines access to the interruption flag.
@@ -1192,6 +1198,21 @@ def run_llm_tts_pipeline(
         nonlocal thinking_time_s
         thinking_time_s = seconds
 
+    def preview_thinking_time(seconds):
+        if not playback.interrupted.is_set():
+            emit({"type": "thinking_preview", "turn_id": evaluation_turn_id, "seconds": seconds})
+
+    last_answer_progress_t = None
+
+    def emit_answer_progress(now, force=False):
+        nonlocal last_answer_progress_t
+        if llm_first_text_t is None or playback.interrupted.is_set():
+            return
+        if force or last_answer_progress_t is None or now - last_answer_progress_t >= 0.25:
+            emit({"type": "llm_answer_progress", "turn_id": evaluation_turn_id,
+                  "seconds": max(0.0, now - llm_first_text_t)})
+            last_answer_progress_t = now
+
     tts_proc_total = 0.0
     chunks_count = 0
     audio_chunk_count = 0
@@ -1227,6 +1248,7 @@ def run_llm_tts_pipeline(
 
                 if playback.interrupted.is_set():
                     return
+                emit_answer_progress(perf_counter())
                 full_answer_parts.append(piece)
                 if not tts_enabled:
                     emit({"type": "llm_chunk", "text": piece})
@@ -1256,6 +1278,7 @@ def run_llm_tts_pipeline(
                     yield StreamingTextChunk(text=clean_chunk + " ", flush=True, is_final=False)
 
             llm_stream_done_t = perf_counter()
+            emit_answer_progress(llm_stream_done_t, force=True)
 
         else:
             # Fallback if provider-side timing is unavailable.
@@ -1268,6 +1291,7 @@ def run_llm_tts_pipeline(
                     thinking_enabled=getattr(args, "thinking_enabled", True),
                     on_reasoning=lambda text: emit({"type": "thinking_chunk", "turn_id": evaluation_turn_id, "text": text}),
                     on_thinking_time=record_thinking_time,
+                    on_thinking_preview=preview_thinking_time,
                 )
             else:
                 stream = (llm.stream_with_cancel(llm_prompt, playback.interrupted)
@@ -1290,6 +1314,7 @@ def run_llm_tts_pipeline(
                         dots_stopped = True
                 if playback.interrupted.is_set():
                     return
+                emit_answer_progress(perf_counter())
                 full_answer_parts.append(piece)
                 if not tts_enabled:
                     emit({"type": "llm_chunk", "text": piece})
@@ -1319,6 +1344,7 @@ def run_llm_tts_pipeline(
                     yield StreamingTextChunk(text=clean_chunk + " ", flush=True, is_final=False)
 
             llm_stream_done_t = perf_counter()
+            emit_answer_progress(llm_stream_done_t, force=True)
 
         if not tts_enabled:
             return
@@ -1692,6 +1718,9 @@ def run_llm_tts_pipeline(
             "stt": stt_time,
             "ttft": llm_ttft_real,
             "thinkingTime": thinking_time_s if response_status == "completed" else None,
+            "llmAnswerTime": (llm_stream_done_t - llm_first_text_t
+                              if response_status == "completed" and llm_stream_done_t is not None
+                              and llm_first_text_t is not None else None),
             "ttsFirstChunk": tts_actual_start_latency,
 
             "llmTotal": llm_time,
