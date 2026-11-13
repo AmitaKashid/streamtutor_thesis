@@ -1217,8 +1217,6 @@ function ConversationPanel({
   thinkingEnabled,
   thinkingAvailable,
   onThinkingChange,
-  thinkingBudget,
-  onThinkingBudgetChange,
   embedded = false,
 }: {
   messages: Message[];
@@ -1230,8 +1228,6 @@ function ConversationPanel({
   thinkingEnabled: boolean;
   thinkingAvailable: boolean;
   onThinkingChange: (enabled: boolean) => void;
-  thinkingBudget: TutorConfig["thinkingBudget"];
-  onThinkingBudgetChange: (value: TutorConfig["thinkingBudget"]) => void;
   embedded?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -1275,24 +1271,13 @@ function ConversationPanel({
                 <span className={classNames("absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition", thinkingAvailable && thinkingEnabled ? "left-[18px]" : "left-0.5")} />
               </span>
             </button>
-            {thinkingAvailable && thinkingEnabled && (
-              <label className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm">
-                <span className="sr-only">Thinking budget</span>
-                <select aria-label="Thinking budget" title="Maximum reasoning tokens; applies next turn. Experimental: model enforcement requires verification." value={thinkingBudget} onChange={(event) => onThinkingBudgetChange(event.target.value as TutorConfig["thinkingBudget"])} className="max-w-36 bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
-                  <option value="default">Budget · Default</option>
-                  <option value="256">Short · 256</option>
-                  <option value="512">Medium · 512</option>
-                  <option value="1024">Long · 1024</option>
-                </select>
-              </label>
-            )}
             <button
-              type="button" role="switch" aria-label="Voice output" aria-checked={speechEnabled}
-              onClick={() => onSpeechChange(!speechEnabled)} title="Voice applies to the next turn"
+              type="button" role="switch" aria-label="Read aloud" aria-checked={speechEnabled}
+              onClick={() => onSpeechChange(!speechEnabled)} title="Read the tutor’s answer aloud; applies to the next turn"
               className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-blue-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
             >
               <Volume2 className="h-4 w-4 text-blue-600" aria-hidden="true" />
-              <span>Voice</span>
+              <span>Read aloud</span>
               <span aria-hidden="true" className={classNames("relative h-5 w-9 rounded-full transition", speechEnabled ? "bg-blue-600" : "bg-slate-300")}>
                 <span className={classNames("absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition", speechEnabled ? "left-[18px]" : "left-0.5")} />
               </span>
@@ -1334,6 +1319,72 @@ function ConversationPanel({
   );
 }
 
+const THINKING_BUDGETS = [
+  { value: "256", label: "Short", detail: "Up to 256 tokens" },
+  { value: "512", label: "Medium", detail: "Up to 512 tokens" },
+  { value: "1024", label: "Long", detail: "Up to 1,024 tokens" },
+] as const;
+
+function ThinkingBudgetControl({ value, onChange }: {
+  value: TutorConfig["thinkingBudget"];
+  onChange: (value: TutorConfig["thinkingBudget"]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const selected = THINKING_BUDGETS.find((option) => option.value === value);
+  const sliderIndex = selected ? THINKING_BUDGETS.indexOf(selected) : 1;
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutside = (event: PointerEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        buttonRef.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div ref={containerRef} className="relative shrink-0">
+      <button ref={buttonRef} type="button" aria-label={`Thinking budget: ${selected?.label ?? "Default"}`}
+        aria-expanded={open} aria-controls="thinking-budget-popover"
+        onClick={() => setOpen((current) => !current)}
+        className="inline-flex h-10 items-center gap-1.5 rounded-full px-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+        <span>{selected?.label ?? "Default"}</span><ChevronDown className="h-4 w-4" aria-hidden="true" />
+      </button>
+      {open && (
+        <div id="thinking-budget-popover" role="group" aria-label="Thinking budget"
+          className="absolute bottom-full right-0 z-50 mb-3 w-72 max-w-[calc(100vw-3rem)] rounded-2xl border border-slate-200 bg-white p-4 shadow-xl shadow-slate-900/10">
+          <div className="flex items-start justify-between gap-3">
+            <div><div className="text-sm font-bold text-slate-900">Thinking budget</div>
+              <div className="mt-1 text-xs text-slate-500">{selected ? selected.detail : "Using the configured default"}</div></div>
+            <button type="button" onClick={() => onChange("default")} aria-pressed={value === "default"}
+              className="rounded-full px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-blue-600">Default</button>
+          </div>
+          <div className="mt-4 text-center text-sm font-semibold text-slate-800">{selected?.label ?? "Default"}</div>
+          <input type="range" min={0} max={2} step={1} value={sliderIndex}
+            aria-label="Thinking budget" aria-valuetext={selected ? `${selected.label}, ${selected.detail}` : "Default; move slider to choose a limit"}
+            onPointerDown={() => { if (!selected) onChange("512"); }}
+            onChange={(event) => onChange(THINKING_BUDGETS[Number(event.target.value)].value)}
+            className="mt-3 h-2 w-full cursor-pointer accent-blue-600 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-blue-600" />
+          <div aria-hidden="true" className="mt-2 flex justify-between text-xs font-medium text-slate-500"><span>Short</span><span>Medium</span><span>Long</span></div>
+          <p className="mt-3 text-xs leading-5 text-slate-500">Maximum reasoning tokens; applies to the next turn.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ControlDock({
   connected,
   listening,
@@ -1343,6 +1394,10 @@ function ControlDock({
   responseActive,
   responseStopping,
   onSendText,
+  thinkingEnabled,
+  thinkingAvailable,
+  thinkingBudget,
+  onThinkingBudgetChange,
   embedded = false,
 }: {
   connected: boolean;
@@ -1353,6 +1408,10 @@ function ControlDock({
   responseActive: boolean;
   responseStopping: boolean;
   onSendText: (text: string) => boolean;
+  thinkingEnabled: boolean;
+  thinkingAvailable: boolean;
+  thinkingBudget: TutorConfig["thinkingBudget"];
+  onThinkingBudgetChange: (value: TutorConfig["thinkingBudget"]) => void;
   embedded?: boolean;
 }) {
   const [text, setText] = useState("");
@@ -1365,7 +1424,7 @@ function ControlDock({
         !embedded && "rounded-3xl border border-slate-200 shadow-sm"
       )}
     >
-      <div className="flex flex-col gap-3 md:flex-row md:items-center">
+      <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-2 focus-within:border-blue-400 focus-within:ring-4 focus-within:ring-blue-100 md:flex-row md:items-center">
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -1376,10 +1435,11 @@ function ControlDock({
             }
           }}
           placeholder="Type a question, or use the microphone..."
-          className="h-14 flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-100"
+          className="h-12 min-w-0 flex-1 bg-transparent px-3 text-sm text-slate-900 outline-none"
         />
 
         <div className="flex items-center justify-end gap-2">
+          {thinkingAvailable && thinkingEnabled && <ThinkingBudgetControl value={thinkingBudget} onChange={onThinkingBudgetChange} />}
           <button
             type="button"
             disabled={!connected}
@@ -2155,8 +2215,6 @@ export default function Page() {
                   thinkingEnabled={config.thinkingEnabled}
                   thinkingAvailable={["gemma4_e4b_thinking", "bonsai2_9b_thinking", "gemma4_26b_q3", "qwen3_5_9b_q6"].includes(config.llmModel)}
                   onThinkingChange={(thinkingEnabled) => setConfig((c) => ({ ...c, thinkingEnabled }))}
-                  thinkingBudget={config.thinkingBudget}
-                  onThinkingBudgetChange={(thinkingBudget) => setConfig((c) => ({ ...c, thinkingBudget }))}
                   embedded
                 />
 
@@ -2169,6 +2227,10 @@ export default function Page() {
                   responseActive={responseActive}
                   responseStopping={responseStopping}
                   onSendText={sendText}
+                  thinkingEnabled={config.thinkingEnabled}
+                  thinkingAvailable={["gemma4_e4b_thinking", "bonsai2_9b_thinking", "gemma4_26b_q3", "qwen3_5_9b_q6"].includes(config.llmModel)}
+                  thinkingBudget={config.thinkingBudget}
+                  onThinkingBudgetChange={(thinkingBudget) => setConfig((c) => ({ ...c, thinkingBudget }))}
                   embedded
                 />
               </section>
