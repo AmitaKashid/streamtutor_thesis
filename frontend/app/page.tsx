@@ -1178,29 +1178,30 @@ function ConversationPanel({
               Voice-first tutoring session
             </h2>
           </div>
-          <button type="button" role="switch" aria-label="Thinking mode" aria-checked={thinkingAvailable && thinkingEnabled}
-            disabled={!thinkingAvailable} onClick={() => onThinkingChange(!thinkingEnabled)}
-            className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2 text-left shadow-sm disabled:opacity-50">
-            <span><span className="block text-sm font-semibold text-slate-800">Thinking</span>
-              <span className="block text-xs text-slate-500">{thinkingAvailable ? "Applies next turn" : "Unavailable for this server"}</span></span>
-            <span aria-hidden="true" className={classNames("relative h-6 w-11 rounded-full", thinkingAvailable && thinkingEnabled ? "bg-blue-600" : "bg-slate-300")}><span className={classNames("absolute top-1 h-4 w-4 rounded-full bg-white shadow", thinkingAvailable && thinkingEnabled ? "left-6" : "left-1")} /></span>
-          </button>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={speechEnabled}
-            onClick={() => onSpeechChange(!speechEnabled)}
-            className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2 text-left shadow-sm transition hover:border-blue-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-          >
-            <Volume2 className="h-4 w-4 text-blue-600" aria-hidden="true" />
-            <span>
-              <span className="block text-sm font-semibold text-slate-800">Speech output</span>
-              <span className="block text-xs text-slate-500">Applies next turn</span>
-            </span>
-            <span aria-hidden="true" className={classNames("relative h-6 w-11 rounded-full transition", speechEnabled ? "bg-blue-600" : "bg-slate-300")}>
-              <span className={classNames("absolute top-1 h-4 w-4 rounded-full bg-white shadow transition", speechEnabled ? "left-6" : "left-1")} />
-            </span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2" aria-label="Response options">
+            <button
+              type="button" role="switch" aria-label="Thinking" aria-checked={thinkingAvailable && thinkingEnabled}
+              disabled={!thinkingAvailable} onClick={() => onThinkingChange(!thinkingEnabled)}
+              title={thinkingAvailable ? "Thinking applies to the next turn" : "Thinking is unavailable for this model"}
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-blue-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <span>Thinking</span>
+              <span aria-hidden="true" className={classNames("relative h-5 w-9 rounded-full transition", thinkingAvailable && thinkingEnabled ? "bg-blue-600" : "bg-slate-300")}>
+                <span className={classNames("absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition", thinkingAvailable && thinkingEnabled ? "left-[18px]" : "left-0.5")} />
+              </span>
+            </button>
+            <button
+              type="button" role="switch" aria-label="Voice output" aria-checked={speechEnabled}
+              onClick={() => onSpeechChange(!speechEnabled)} title="Voice applies to the next turn"
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-blue-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+            >
+              <Volume2 className="h-4 w-4 text-blue-600" aria-hidden="true" />
+              <span>Voice</span>
+              <span aria-hidden="true" className={classNames("relative h-5 w-9 rounded-full transition", speechEnabled ? "bg-blue-600" : "bg-slate-300")}>
+                <span className={classNames("absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition", speechEnabled ? "left-[18px]" : "left-0.5")} />
+              </span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -2028,7 +2029,7 @@ export default function Page() {
                   speechEnabled={config.ttsEnabled}
                   onSpeechChange={(ttsEnabled) => setConfig((c) => ({ ...c, ttsEnabled }))}
                   thinkingEnabled={config.thinkingEnabled}
-                  thinkingAvailable={["gemma4_e4b_thinking", "bonsai2_9b_thinking"].includes(config.llmModel)}
+                  thinkingAvailable={["gemma4_e4b_thinking", "bonsai2_9b_thinking", "gemma4_26b_q3", "qwen3_5_9b_q6"].includes(config.llmModel)}
                   onThinkingChange={(thinkingEnabled) => setConfig((c) => ({ ...c, thinkingEnabled }))}
                   embedded
                 />

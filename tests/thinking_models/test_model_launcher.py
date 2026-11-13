@@ -17,7 +17,7 @@ class LauncherTests(unittest.TestCase):
             self.assertIn(label, text)
             self.assertIn(f'localhost:{port} healthy', text)
         self.assertIn('does not verify model identity', text)
-        self.assertEqual(len(launcher.SERVICES), 6)
+        self.assertEqual(len(launcher.SERVICES), 8)
 
     def test_model_identity_accepts_exact_deployed_path(self):
         payload = {'data': [{'id': '/home/user/models/gemma-4-E4B_q4_0-it.gguf'}]}

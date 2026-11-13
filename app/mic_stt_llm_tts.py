@@ -203,7 +203,7 @@ def start_terminal_dots(message: str = "Preparing your explanation"):
 # ---------------- LLM ----------------
 def build_llm(args):
     if args.llm_backend == "remote":
-        if args.llm_model in {"gemma4_e4b_thinking", "bonsai2_9b_thinking"}:
+        if args.llm_model in {"gemma4_e4b_thinking", "bonsai2_9b_thinking", "gemma4_26b_q3", "qwen3_5_9b_q6"}:
             from llm.llmcli.providers.thinking_http import ThinkingHTTPProvider
             provider = ThinkingHTTPProvider(args.llm_server_url, args.llm_read_timeout)
             if not provider.healthcheck():
@@ -1256,7 +1256,7 @@ def run_llm_tts_pipeline(
             # Start timing immediately before the actual LLM stream request.
             llm_request_start_t = perf_counter()
 
-            if hasattr(llm, "stream_with_cancel") and args.llm_model in {"gemma4_e4b_thinking", "bonsai2_9b_thinking"}:
+            if hasattr(llm, "stream_with_cancel") and args.llm_model in {"gemma4_e4b_thinking", "bonsai2_9b_thinking", "gemma4_26b_q3", "qwen3_5_9b_q6"}:
                 stream = llm.stream_with_cancel(
                     llm_prompt, playback.interrupted,
                     thinking_enabled=getattr(args, "thinking_enabled", True),
