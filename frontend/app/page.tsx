@@ -6,6 +6,8 @@ import {
   BookOpen,
   ChevronDown,
   ChevronUp,
+  Check,
+  Lightbulb,
   Clock3,
   Cpu,
   Mic,
@@ -1214,9 +1216,6 @@ function ConversationPanel({
   listening,
   speechEnabled,
   onSpeechChange,
-  thinkingEnabled,
-  thinkingAvailable,
-  onThinkingChange,
   embedded = false,
 }: {
   messages: Message[];
@@ -1225,9 +1224,6 @@ function ConversationPanel({
   listening: boolean;
   speechEnabled: boolean;
   onSpeechChange: (enabled: boolean) => void;
-  thinkingEnabled: boolean;
-  thinkingAvailable: boolean;
-  onThinkingChange: (enabled: boolean) => void;
   embedded?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -1260,17 +1256,6 @@ function ConversationPanel({
             </h2>
           </div>
           <div className="flex flex-wrap items-center gap-2" aria-label="Response options">
-            <button
-              type="button" role="switch" aria-label="Thinking" aria-checked={thinkingAvailable && thinkingEnabled}
-              disabled={!thinkingAvailable} onClick={() => onThinkingChange(!thinkingEnabled)}
-              title={thinkingAvailable ? "Thinking applies to the next turn" : "Thinking is unavailable for this model"}
-              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-blue-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <span>Thinking</span>
-              <span aria-hidden="true" className={classNames("relative h-5 w-9 rounded-full transition", thinkingAvailable && thinkingEnabled ? "bg-blue-600" : "bg-slate-300")}>
-                <span className={classNames("absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition", thinkingAvailable && thinkingEnabled ? "left-[18px]" : "left-0.5")} />
-              </span>
-            </button>
             <button
               type="button" role="switch" aria-label="Read aloud" aria-checked={speechEnabled}
               onClick={() => onSpeechChange(!speechEnabled)} title="Read the tutor’s answer aloud; applies to the next turn"
@@ -1320,20 +1305,26 @@ function ConversationPanel({
 }
 
 const THINKING_BUDGETS = [
-  { value: "256", label: "Short", detail: "Up to 256 tokens" },
-  { value: "512", label: "Medium", detail: "Up to 512 tokens" },
-  { value: "1024", label: "Long", detail: "Up to 1,024 tokens" },
+  { value: "default", label: "Default", detail: "Configured default" },
+  { value: "256", label: "Short", detail: "Max 256 tokens" },
+  { value: "512", label: "Medium", detail: "Max 512 tokens" },
+  { value: "1024", label: "Long", detail: "Max 1,024 tokens" },
 ] as const;
 
-function ThinkingBudgetControl({ value, onChange }: {
+function ThinkingBudgetControl({ enabled, available, value, onChange }: {
+  enabled: boolean;
+  available: boolean;
   value: TutorConfig["thinkingBudget"];
-  onChange: (value: TutorConfig["thinkingBudget"]) => void;
+  onChange: (enabled: boolean, value: TutorConfig["thinkingBudget"]) => void;
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const selected = THINKING_BUDGETS.find((option) => option.value === value);
-  const sliderIndex = selected ? THINKING_BUDGETS.indexOf(selected) : 1;
+
+  useEffect(() => {
+    if (!available) setOpen(false);
+  }, [available]);
 
   useEffect(() => {
     if (!open) return;
@@ -1354,31 +1345,42 @@ function ThinkingBudgetControl({ value, onChange }: {
     };
   }, [open]);
 
+  const choose = (nextEnabled: boolean, nextValue: TutorConfig["thinkingBudget"]) => {
+    onChange(nextEnabled, nextValue);
+    setOpen(false);
+    buttonRef.current?.focus();
+  };
+
   return (
     <div ref={containerRef} className="relative shrink-0">
-      <button ref={buttonRef} type="button" aria-label={`Thinking budget: ${selected?.label ?? "Default"}`}
-        aria-expanded={open} aria-controls="thinking-budget-popover"
-        onClick={() => setOpen((current) => !current)}
-        className="inline-flex h-10 items-center gap-1.5 rounded-full px-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
-        <span>{selected?.label ?? "Default"}</span><ChevronDown className="h-4 w-4" aria-hidden="true" />
+      <button ref={buttonRef} type="button" disabled={!available}
+        aria-label={available ? `Thinking: ${enabled ? selected?.label ?? "Default" : "Off"}` : "Thinking unavailable for this model"}
+        aria-expanded={open} aria-controls={open ? "thinking-budget-popover" : undefined}
+        title={available ? "Thinking and reasoning token limit" : "Thinking is unavailable for this model"}
+        onClick={() => { if (!enabled) onChange(true, value); setOpen((current) => !current); }}
+        className={classNames("inline-flex h-10 items-center gap-1.5 rounded-full px-3 text-sm font-semibold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-50", enabled && available ? "bg-blue-100 text-blue-700 hover:bg-blue-200" : "text-slate-600 hover:bg-slate-100")}>
+        <Lightbulb className="h-4 w-4" aria-hidden="true" />
+        <span>{enabled && available ? selected?.label ?? "Default" : "Think"}</span>
+        <ChevronDown className="h-4 w-4" aria-hidden="true" />
       </button>
-      {open && (
-        <div id="thinking-budget-popover" role="group" aria-label="Thinking budget"
-          className="absolute bottom-full right-0 z-50 mb-3 w-72 max-w-[calc(100vw-3rem)] rounded-2xl border border-slate-200 bg-white p-4 shadow-xl shadow-slate-900/10">
-          <div className="flex items-start justify-between gap-3">
-            <div><div className="text-sm font-bold text-slate-900">Thinking budget</div>
-              <div className="mt-1 text-xs text-slate-500">{selected ? selected.detail : "Using the configured default"}</div></div>
-            <button type="button" onClick={() => onChange("default")} aria-pressed={value === "default"}
-              className="rounded-full px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-blue-600">Default</button>
-          </div>
-          <div className="mt-4 text-center text-sm font-semibold text-slate-800">{selected?.label ?? "Default"}</div>
-          <input type="range" min={0} max={2} step={1} value={sliderIndex}
-            aria-label="Thinking budget" aria-valuetext={selected ? `${selected.label}, ${selected.detail}` : "Default; move slider to choose a limit"}
-            onPointerDown={() => { if (!selected) onChange("512"); }}
-            onChange={(event) => onChange(THINKING_BUDGETS[Number(event.target.value)].value)}
-            className="mt-3 h-2 w-full cursor-pointer accent-blue-600 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-blue-600" />
-          <div aria-hidden="true" className="mt-2 flex justify-between text-xs font-medium text-slate-500"><span>Short</span><span>Medium</span><span>Long</span></div>
-          <p className="mt-3 text-xs leading-5 text-slate-500">Maximum reasoning tokens; applies to the next turn.</p>
+      {open && available && (
+        <div id="thinking-budget-popover" role="group" aria-label="Thinking settings"
+          className="absolute bottom-full right-0 z-50 mb-3 w-72 max-w-[calc(100vw-3rem)] rounded-2xl border border-slate-200 bg-white p-2 shadow-xl shadow-slate-900/10">
+          <div className="px-3 pb-2 pt-2 text-sm font-bold text-slate-900">Thinking</div>
+          <button type="button" aria-pressed={!enabled} onClick={() => choose(false, value)}
+            className={classNames("flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 focus-visible:outline-2 focus-visible:outline-blue-600", !enabled ? "bg-blue-50 font-semibold" : "hover:bg-slate-50")}>
+            <span className="w-4 shrink-0">{!enabled && <Check className="h-4 w-4 text-blue-600" aria-hidden="true" />}</span><span>Off</span>
+          </button>
+          {THINKING_BUDGETS.map((option) => {
+            const active = enabled && option.value === value;
+            return (
+              <button key={option.value} type="button" aria-pressed={active} onClick={() => choose(true, option.value)}
+                className={classNames("flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm text-slate-700 focus-visible:outline-2 focus-visible:outline-blue-600", active ? "bg-blue-50 font-semibold" : "hover:bg-slate-50")}>
+                <span className="w-4 shrink-0">{active && <Check className="h-4 w-4 text-blue-600" aria-hidden="true" />}</span>
+                <span>{option.label}</span><span className="ml-auto text-xs font-normal text-slate-500">{option.detail}</span>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -1397,7 +1399,7 @@ function ControlDock({
   thinkingEnabled,
   thinkingAvailable,
   thinkingBudget,
-  onThinkingBudgetChange,
+  onThinkingSettingsChange,
   embedded = false,
 }: {
   connected: boolean;
@@ -1411,7 +1413,7 @@ function ControlDock({
   thinkingEnabled: boolean;
   thinkingAvailable: boolean;
   thinkingBudget: TutorConfig["thinkingBudget"];
-  onThinkingBudgetChange: (value: TutorConfig["thinkingBudget"]) => void;
+  onThinkingSettingsChange: (enabled: boolean, value: TutorConfig["thinkingBudget"]) => void;
   embedded?: boolean;
 }) {
   const [text, setText] = useState("");
@@ -1439,7 +1441,7 @@ function ControlDock({
         />
 
         <div className="flex items-center justify-end gap-2">
-          {thinkingAvailable && thinkingEnabled && <ThinkingBudgetControl value={thinkingBudget} onChange={onThinkingBudgetChange} />}
+          <ThinkingBudgetControl enabled={thinkingEnabled} available={thinkingAvailable} value={thinkingBudget} onChange={onThinkingSettingsChange} />
           <button
             type="button"
             disabled={!connected}
@@ -2212,9 +2214,6 @@ export default function Page() {
                   listening={listening}
                   speechEnabled={config.ttsEnabled}
                   onSpeechChange={(ttsEnabled) => setConfig((c) => ({ ...c, ttsEnabled }))}
-                  thinkingEnabled={config.thinkingEnabled}
-                  thinkingAvailable={["gemma4_e4b_thinking", "bonsai2_9b_thinking", "gemma4_26b_q3", "qwen3_5_9b_q6"].includes(config.llmModel)}
-                  onThinkingChange={(thinkingEnabled) => setConfig((c) => ({ ...c, thinkingEnabled }))}
                   embedded
                 />
 
@@ -2230,7 +2229,7 @@ export default function Page() {
                   thinkingEnabled={config.thinkingEnabled}
                   thinkingAvailable={["gemma4_e4b_thinking", "bonsai2_9b_thinking", "gemma4_26b_q3", "qwen3_5_9b_q6"].includes(config.llmModel)}
                   thinkingBudget={config.thinkingBudget}
-                  onThinkingBudgetChange={(thinkingBudget) => setConfig((c) => ({ ...c, thinkingBudget }))}
+                  onThinkingSettingsChange={(thinkingEnabled, thinkingBudget) => setConfig((c) => ({ ...c, thinkingEnabled, thinkingBudget }))}
                   embedded
                 />
               </section>
