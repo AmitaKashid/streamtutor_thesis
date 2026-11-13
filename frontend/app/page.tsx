@@ -13,7 +13,6 @@ import {
   Mic,
   RotateCcw,
   Search,
-  ArrowUp,
   Settings2,
   Square,
   Volume2,
@@ -1443,7 +1442,7 @@ function ControlDock({
               if (onSendText(text.trim())) setText("");
             }
           }}
-          placeholder="Type a question, or use the microphone..."
+          placeholder="Type a question and press Enter..."
           className="h-12 min-w-0 flex-1 bg-transparent px-3 text-sm text-slate-900 outline-none"
         />
 
@@ -1467,19 +1466,18 @@ function ControlDock({
             <Mic className="h-5 w-5" />
           </button>
 
-          <button
-            type="button"
-            aria-label={responseActive ? "Stop response" : "Send question"}
-            title={responseActive ? "Stop response" : "Send question"}
-            disabled={!connected || (responseActive ? responseStopping : !text.trim())}
-            onClick={() => {
-              if (responseActive) onStop();
-              else if (text.trim() && onSendText(text.trim())) setText("");
-            }}
-            className="inline-flex h-12 w-12 shrink-0 items-center justify-center self-end rounded-full bg-blue-600 text-white shadow-sm transition hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 md:self-center"
-          >
-            {responseActive ? <Square className="h-4 w-4 fill-current" aria-hidden="true" /> : <ArrowUp className="h-5 w-5" aria-hidden="true" />}
-          </button>
+          {responseActive && (
+            <button
+              type="button"
+              aria-label="Stop response"
+              title="Stop response"
+              disabled={!connected || responseStopping}
+              onClick={onStop}
+              className="inline-flex h-12 w-12 shrink-0 items-center justify-center self-end rounded-full bg-blue-600 text-white shadow-sm transition hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 md:self-center"
+            >
+              <Square className="h-4 w-4 fill-current" aria-hidden="true" />
+            </button>
+          )}
         </div>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
@@ -1563,7 +1561,7 @@ function MetricsTable({ history }: { history: TurnMetricRecord[] }) {
                 <th className={columnHeaderClass}>STT latency</th>
                 <th className={columnHeaderClass}>RAG latency</th>
                 <th className={columnHeaderClass}>Prompt chars</th>
-                <th className={columnHeaderClass}>Conversation chars</th>
+                <th className={columnHeaderClass} title="Previous conversation included in this request, before the current answer is stored.">History sent</th>
                 <th className={columnHeaderClass}>Model</th>
                 <th className={columnHeaderClass} title="Full tokenized prompt, including system and chat template; measured by the model server.">Prompt tokens</th>
                 <th className={columnHeaderClass} title="Prompt tokens reused from the server's prefix cache.">Cached tokens</th>
@@ -1613,7 +1611,7 @@ function MetricsTable({ history }: { history: TurnMetricRecord[] }) {
                     </td>
 
                     <td className={cellClass}>
-                      {record.metrics.conversationChars?.toLocaleString() ?? "—"}
+                      {record.metrics.conversationChars == null ? "—" : `${record.metrics.conversationChars.toLocaleString()} chars · ${record.metrics.conversationTurns ?? "—"} turns`}
                     </td>
 
                     <td className={cellClass}>

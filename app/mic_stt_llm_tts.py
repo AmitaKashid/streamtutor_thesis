@@ -143,30 +143,32 @@ class ConversationMemory:
             turns_copy = turns_copy[-max_turns:]
         return turns_copy
 
-    def format_history(self) -> str:
-        turns_copy = self.snapshot()
+    def format_history_snapshot(self, turns: list[dict[str, str]]) -> tuple[str, int]:
+        """Format selected turns and count turns with any text in the result."""
+        if not turns:
+            return "", 0
+        blocks = [f"Turn {i}\nUser: {turn['user']}\nAssistant: {turn['assistant']}"
+                  for i, turn in enumerate(turns, 1)]
+        history = "\n\n".join(blocks)
+        if self.max_chars is None or self.max_chars <= 0 or len(history) <= self.max_chars:
+            return history, len(blocks)
+        cutoff = len(history) - self.max_chars
+        offset = 0
+        included_turns = 0
+        for block in blocks:
+            if offset + len(block) > cutoff:
+                included_turns += 1
+            offset += len(block) + 2
+        return "[Conversation history truncated to most recent characters]\n" + history[cutoff:], included_turns
 
-        if not turns_copy:
-            return ""
-
-        lines = []
-        for i, turn in enumerate(turns_copy, 1):
-            lines.append(f"Turn {i}")
-            lines.append(f"User: {turn['user']}")
-            lines.append(f"Assistant: {turn['assistant']}")
-            lines.append("")
-
-        history = "\n".join(lines).strip()
-
-        if self.max_chars is not None and self.max_chars > 0 and len(history) > self.max_chars:
-            history = history[-self.max_chars:]
-            history = "[Conversation history truncated to most recent characters]\n" + history
-
+    def format_history(self, turns: list[dict[str, str]] | None = None) -> str:
+        history, _ = self.format_history_snapshot(self.snapshot() if turns is None else turns)
         return history
 
-    def build_contextual_user_query(self, current_user_query: str) -> str:
+    def build_contextual_user_query(self, current_user_query: str, history: str | None = None) -> str:
         current_user_query = (current_user_query or "").strip()
-        history = self.format_history()
+        if history is None:
+            history = self.format_history()
 
         if not history:
             return current_user_query
@@ -877,41 +879,40 @@ def run_llm_tts_pipeline(
     # The LLM receives the growing conversation history + current question.
     raw_current_user_query = final_user_query
     history_snapshot = ()
-    if conversation_memory is not None and getattr(args, "conversation_context", False):
+    previous_turns = []
+    history = ""
+    history_turn_count = 0
+    if getattr(args, "conversation_context", False) and conversation_memory is not None:
+        # Use the same selected turns and formatted text for the prompt and metrics.
         previous_turns = conversation_memory.snapshot()
+        history, history_turn_count = conversation_memory.format_history_snapshot(previous_turns)
         history_snapshot = tuple(msg for turn in previous_turns for msg in (
             {"role": "user", "content": turn["user"]},
             {"role": "assistant", "content": turn["assistant"]},
         ))
-
-    if getattr(args, "conversation_context", False) and conversation_memory is not None:
-        memory_stats_before = conversation_memory.stats()
-        emit({
-            "type": "metrics",
-            "data": {
-                "conversationTurns": memory_stats_before["turns"],
-                "conversationChars": memory_stats_before["chars"],
-            },
-        })
-
         final_user_query = conversation_memory.build_contextual_user_query(
-            current_user_query=final_user_query
+            current_user_query=final_user_query, history=history
         )
 
         print("\n[CONVERSATION CONTEXT]")
-        print(f"  enabled           : True")
-        print(f"  previous turns    : {memory_stats_before['turns']}")
-        print(f"  history chars     : {memory_stats_before['chars']}")
-        print(f"  history words     : {memory_stats_before['approx_words']}")
+        print("  enabled           : True")
+        print(f"  previous turns    : {history_turn_count}")
+        print(f"  history chars     : {len(history)}")
+        print(f"  history words     : {len(history.split())}")
         print(f"  final query chars : {len(final_user_query)}")
-
         if getattr(args, "conversation_print_context", False):
             print("\n[CONVERSATION HISTORY -> LLM]")
-            print(conversation_memory.format_history())
+            print(history)
             print("")
     else:
         print("\n[CONVERSATION CONTEXT]")
         print("  enabled           : False")
+
+    # These describe the history sent on this request, not memory after the answer.
+    emit({"type": "metrics", "data": {
+        "conversationTurns": history_turn_count,
+        "conversationChars": len(history),
+    }})
 
     llm_prompt = compose_prompt(
         style=args.teaching_style,
