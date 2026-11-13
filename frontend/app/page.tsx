@@ -689,28 +689,23 @@ function useTutorSocket(url: string) {
           if (data.type === "metrics") {
             const incoming = data.data;
 
-            setMetrics((prev) => {
-              const merged: MetricState = {
-                ...prev,
-                ...incoming,
-                stt:
-                  incoming.stt !== undefined && incoming.stt > 0
-                    ? incoming.stt
-                    : prev.stt,
-              };
-
-              currentTurnMetricsRef.current = {
-                ...currentTurnMetricsRef.current,
-                ...incoming,
-                stt:
-                  incoming.stt !== undefined && incoming.stt > 0
-                    ? incoming.stt
-                    : currentTurnMetricsRef.current.stt ?? prev.stt,
-              };
-
-
-              return merged;
-            });
+            // Record immediately: assistant_done can arrive before React runs
+            // a queued state updater, especially for short text-only turns.
+            const previousTurn = currentTurnMetricsRef.current;
+            currentTurnMetricsRef.current = {
+              ...previousTurn,
+              ...incoming,
+              stt: incoming.stt !== undefined && incoming.stt > 0
+                ? incoming.stt
+                : previousTurn.stt,
+            };
+            setMetrics((prev) => ({
+              ...prev,
+              ...incoming,
+              stt: incoming.stt !== undefined && incoming.stt > 0
+                ? incoming.stt
+                : prev.stt,
+            }));
 
             return;
           }
@@ -1221,7 +1216,6 @@ function ControlDock({
   embedded?: boolean;
 }) {
   const [text, setText] = useState("");
-  const busy = stage !== "idle" && stage !== "error";
 
   return (
     <section
@@ -1276,7 +1270,7 @@ function ControlDock({
         <button
           type="button"
           onClick={onStop}
-          disabled={!busy && !listening}
+          disabled={!connected}
           className="inline-flex h-14 items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-5 text-sm font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
         >
           <Square className="h-4 w-4" /> Stop
