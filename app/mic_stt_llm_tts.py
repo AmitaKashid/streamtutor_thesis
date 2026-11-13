@@ -734,6 +734,8 @@ def run_llm_tts_pipeline(
     drain_after_tts: threading.Event | None = None,
     interruption_text: str | None = None,
     interrupted_chunks: list[str] | None = None,
+    request_cancel_event: threading.Event | None = None,
+    evaluation_turn_id: str | None = None,
 ) -> None:
     """
     Shared post-STT pipeline for both mic mode and file mode:
@@ -742,10 +744,14 @@ def run_llm_tts_pipeline(
     For interruption mode:
       interruption_text + last spoken chunks -> (RAG) -> prompt -> LLM -> TTS
     """
-    evaluation_turn_id = f"tutor-{uuid.uuid4().hex}"
+    evaluation_turn_id = evaluation_turn_id or f"tutor-{uuid.uuid4().hex}"
     evaluation_conversation_id = conversation_id or f"cli-{uuid.uuid4().hex}"
     norm = transcript.lower().strip(" .!?")
     playback.reset_interrupt()
+    # Preserve a stop request received before this worker acquired the lock.
+    if request_cancel_event is not None and request_cancel_event.is_set():
+        playback.interrupted.set()
+        return
     playback.clear_interrupt_snapshot()
 
     # Give streaming TTS engines access to the interruption flag.

@@ -11,7 +11,7 @@ import {
   Mic,
   RotateCcw,
   Search,
-  Send,
+  ArrowUp,
   Settings2,
   Square,
   Volume2,
@@ -29,6 +29,7 @@ import {
   YAxis,
 } from "recharts";
 import { AnimatePresence, motion } from "framer-motion";
+import { idleResponse, responseActivity, responseIsActive } from "./response-activity.mjs";
 
 
 type Stage =
@@ -104,7 +105,7 @@ type ServerEvent =
   | { type: "stage"; value: Stage }
   | { type: "llm_chunk"; text: string }
   | { type: "thinking_chunk"; turn_id: string; text: string }
-  | { type: "assistant_done" }
+  | { type: "assistant_done"; turn_id?: string }
   | { type: "sources"; data: SourceItem[] }
   | { type: "metrics"; data: MetricState }
   | { type: "captured_text"; text: string }
@@ -302,6 +303,13 @@ function toBackendConfig(config: TutorConfig) {
 function useTutorSocket(url: string) {
   const [connected, setConnected] = useState(false);
   const [stage, setStage] = useState<Stage>("idle");
+  const [responseState, setResponseState] = useState(idleResponse);
+  const responseStateRef = useRef(responseState);
+  const updateResponse = (event: { type: string; audio?: boolean }) => {
+    const next = responseActivity(responseStateRef.current, event);
+    responseStateRef.current = next;
+    setResponseState(next);
+  };
   const [messages, setMessages] = useState<Message[]>([]);
   const [sources, setSources] = useState<SourceItem[]>([]);
   const [metrics, setMetrics] = useState<MetricState>({});
@@ -336,6 +344,13 @@ function useTutorSocket(url: string) {
     textDeliveryNotifiedRef.current.add(pendingTextDelivery.turnId);
     ws.send(JSON.stringify({ action: "browser_text_finished", turn_id: pendingTextDelivery.turnId }));
   }, [messages, pendingTextDelivery]);
+
+  // Audio is complete only after the server ends the stream and browser playback drains.
+  const markAudioDrained = () => {
+    if (streamEndedRef.current && !currentSourceRef.current && playbackQueueRef.current.length === 0) {
+      updateResponse({ type: "audio_done" });
+    }
+  };
 
   // Report only when audio_done has arrived AND all browser buffers ended.
   const maybeAcknowledgePlayback = () => {
@@ -416,6 +431,7 @@ function useTutorSocket(url: string) {
       } else {
         browserAudioPlayingRef.current = false;
 
+        markAudioDrained();
         maybeAcknowledgePlayback();
       }
     };
@@ -463,6 +479,8 @@ function useTutorSocket(url: string) {
       ws.onclose = () => {
         if (disposed || wsRef.current !== ws) return;
         setConnected(false);
+        stopBrowserAudio();
+        updateResponse({ type: "reset" });
         reconnectTimer = setTimeout(connect, 1000);
       };
 
@@ -493,13 +511,14 @@ function useTutorSocket(url: string) {
               stopBrowserAudio(playbackTurnIdRef.current);
             }
             playbackTurnIdRef.current = data.turn_id;
+            updateResponse({ type: "start", audio: data.delivery_mode === "audio" });
             const turnModel = data.model ?? null;
             currentTurnMetricsRef.current = { ...currentTurnMetricsRef.current, model: turnModel, thinkingTime: null };
             setMetrics((prev) => ({ ...prev, model: turnModel, thinkingTime: null }));
             deliveryModeRef.current = data.delivery_mode;
             streamEndedRef.current = false;
             receivedAudioRef.current = false;
-            stoppedRef.current = false;
+            stoppedRef.current = responseStateRef.current.cancelling;
             return;
           }
 
@@ -538,13 +557,17 @@ function useTutorSocket(url: string) {
           }
 
           if (data.type === "audio_stop") {
-            if (data.turn_id === playbackTurnIdRef.current) stopBrowserAudio(data.turn_id);
+            if (data.turn_id === playbackTurnIdRef.current) {
+              stopBrowserAudio(data.turn_id);
+              updateResponse({ type: "audio_done" });
+            }
             return;
           }
 
           if (data.type === "audio_done") {
             if (data.turn_id !== playbackTurnIdRef.current || stoppedRef.current) return;
             streamEndedRef.current = true;
+            markAudioDrained();
             maybeAcknowledgePlayback();
             return;
           }
@@ -674,6 +697,10 @@ function useTutorSocket(url: string) {
           }
 
           if (data.type === "assistant_done") {
+            // Completion from an interrupted older turn must not end a newer turn.
+            if (data.turn_id && playbackTurnIdRef.current && data.turn_id !== playbackTurnIdRef.current) return;
+            if (data.turn_id && !playbackTurnIdRef.current && !responseStateRef.current.cancelling) return;
+            updateResponse({ type: "generation_done" });
             setMessages((prev) =>
               prev.map((m, idx) =>
                 idx === prev.length - 1 && m.role === "assistant"
@@ -736,10 +763,14 @@ function useTutorSocket(url: string) {
           }
 
           if (data.type === "error") {
+            stopBrowserAudio();
+            updateResponse({ type: "reset" });
             setError(data.message);
             setStage("error");
           }
         } catch {
+          stopBrowserAudio();
+          updateResponse({ type: "reset" });
           setError("Received malformed websocket event.");
           setStage("error");
         }
@@ -770,6 +801,20 @@ function useTutorSocket(url: string) {
     return true;
   };
 
+  const beginResponse = () => {
+    if (responseIsActive(responseStateRef.current)) return false;
+    playbackTurnIdRef.current = null;
+    updateResponse({ type: "submit" });
+    return true;
+  };
+
+  const stopResponse = () => {
+    if (!responseIsActive(responseStateRef.current) || responseStateRef.current.cancelling) return;
+    updateResponse({ type: "stop" });
+    stopBrowserAudio();
+    if (!send({ action: "interrupt" })) updateResponse({ type: "reset" });
+  };
+
   const resetTurnMetrics = () => {
     currentTurnMetricsRef.current = {};
     hasRecordedCurrentTurnRef.current = false;
@@ -779,6 +824,10 @@ function useTutorSocket(url: string) {
   return {
     connected,
     stage,
+    responseActive: responseIsActive(responseState),
+    responseStopping: responseState.cancelling,
+    beginResponse,
+    stopResponse,
     messages,
     sources,
     metrics,
@@ -1250,6 +1299,8 @@ function ControlDock({
   stage,
   onStartMic,
   onStop,
+  responseActive,
+  responseStopping,
   onSendText,
   embedded = false,
 }: {
@@ -1258,7 +1309,9 @@ function ControlDock({
   stage: Stage;
   onStartMic: () => void;
   onStop: () => void;
-  onSendText: (text: string) => void;
+  responseActive: boolean;
+  responseStopping: boolean;
+  onSendText: (text: string) => boolean;
   embedded?: boolean;
 }) {
   const [text, setText] = useState("");
@@ -1276,6 +1329,8 @@ function ControlDock({
           type="button"
           disabled={!connected}
           onClick={onStartMic}
+          aria-label={listening ? "Stop microphone" : "Start microphone"}
+          aria-pressed={listening}
           className={classNames(
             "inline-flex h-14 min-w-14 items-center justify-center rounded-2xl font-semibold shadow-sm transition",
             !connected
@@ -1292,9 +1347,9 @@ function ControlDock({
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && text.trim()) {
-              onSendText(text.trim());
-              setText("");
+            if (e.key === "Enter" && !e.nativeEvent.isComposing && !responseActive && connected && text.trim()) {
+              e.preventDefault();
+              if (onSendText(text.trim())) setText("");
             }
           }}
           placeholder="Type a question, or use the microphone..."
@@ -1303,30 +1358,22 @@ function ControlDock({
 
         <button
           type="button"
+          aria-label={responseActive ? "Stop response" : "Send question"}
+          title={responseActive ? "Stop response" : "Send question"}
+          disabled={!connected || (responseActive ? responseStopping : !text.trim())}
           onClick={() => {
-            if (!text.trim()) return;
-            onSendText(text.trim());
-            setText("");
+            if (responseActive) onStop();
+            else if (text.trim() && onSendText(text.trim())) setText("");
           }}
-          className="inline-flex h-14 items-center justify-center gap-2 rounded-2xl bg-slate-900 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
+          className="inline-flex h-12 w-12 shrink-0 items-center justify-center self-end rounded-full bg-blue-600 text-white shadow-sm transition hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 md:self-center"
         >
-          <Send className="h-4 w-4" /> Send
-        </button>
-
-        <button
-          type="button"
-          onClick={onStop}
-          disabled={!connected}
-          className="inline-flex h-14 items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-5 text-sm font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
-        >
-          <Square className="h-4 w-4" /> Stop
+          {responseActive ? <Square className="h-4 w-4 fill-current" aria-hidden="true" /> : <ArrowUp className="h-5 w-5" aria-hidden="true" />}
         </button>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
         <span className="font-semibold text-slate-700">Status:</span>
         <span>{listening ? "Mic on: continuous listening" : stageLabel[stage]}</span>
-        <span className="text-slate-300">•</span>
-        <span>Stop button turns off the mic and interrupts the current answer/TTS.</span>
+
       </div>
     </section>
   );
@@ -1704,6 +1751,10 @@ export default function Page() {
   const {
     connected,
     stage,
+    responseActive,
+    responseStopping,
+    beginResponse,
+    stopResponse,
     messages,
     sources,
     metrics,
@@ -1838,13 +1889,14 @@ export default function Page() {
     }
   ) => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || !connected || !beginResponse()) return false;
     resetTurnMetrics();
     const ok = send({ action: "text_query", text: trimmed, config: backendConfig });
     if (!ok) {
       setStage("error");
       setError("Could not send text. Backend websocket is disconnected.");
-      return;
+      stopResponse();
+      return false;
     }
 
     if (typeof options?.sttLatency === "number" && options.sttLatency > 0) {
@@ -1873,6 +1925,7 @@ export default function Page() {
     }
 
     setStage("thinking");
+    return true;
   };
 
 
@@ -1988,14 +2041,8 @@ export default function Page() {
   };
 
   const stopPipeline = () => {
-    stopMic();
-
     assistantOutputActiveRef.current = false;
-
-    send({ action: "interrupt" });
-
-    setCapturedText("");
-    setPartialText("");
+    stopResponse();
     setStage("interrupted");
   };
 
@@ -2065,8 +2112,10 @@ export default function Page() {
                   connected={connected}
                   listening={listening}
                   stage={stage}
-                  onStartMic={startMic}
+                  onStartMic={listening ? stopMic : startMic}
                   onStop={stopPipeline}
+                  responseActive={responseActive}
+                  responseStopping={responseStopping}
                   onSendText={sendText}
                   embedded
                 />
