@@ -34,9 +34,22 @@ SERVICES = (
 )
 
 
+class SSHCommandError(RuntimeError):
+    """A bounded SSH request failed or timed out."""
+
+
 def ssh(command: str) -> str:
-    result = subprocess.run(['ssh', '-i', str(KEY), '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20',
-                             f'{USER}@{LOGIN}', command], check=True, capture_output=True, text=True)
+    try:
+        result = subprocess.run(
+            ['ssh', '-n', '-T', '-i', str(KEY), '-o', 'BatchMode=yes',
+             '-o', 'ConnectTimeout=20', f'{USER}@{LOGIN}', command],
+            stdin=subprocess.DEVNULL, check=True, capture_output=True, text=True, timeout=45,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SSHCommandError(f'SSH command timed out after 45 seconds: {command}') from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or '').strip() or f'exit code {exc.returncode}'
+        raise SSHCommandError(f'SSH command failed ({command}): {detail}') from exc
     return result.stdout.strip()
 
 
@@ -136,7 +149,7 @@ def wait_remote_model(name, jobid, node, port, model_key, timeout=300):
             raise RuntimeError(f'{name} job {jobid} is no longer running on {node}')
         try:
             payload = remote_models(node, port)
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+        except (SSHCommandError, subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
             last_error = exc
             time.sleep(5)
             continue
@@ -199,9 +212,11 @@ def main():
     import hashlib
     digest = hashlib.sha256(job_script.read_bytes()).hexdigest()[:12]
     remote_script = f'scripts/run_thinking_model_{digest}.sbatch'
+    print('Connecting to Sofja and preparing directories (up to 45 seconds)...', flush=True)
     ssh('mkdir -p ~/llmtutor/scripts ~/llmtutor/logs')
-    subprocess.run(['scp', '-i', str(KEY), '-o', 'BatchMode=yes', str(job_script),
-                    f'{USER}@{LOGIN}:llmtutor/{remote_script}'], check=True)
+    print('Uploading the Slurm script (up to 120 seconds)...', flush=True)
+    subprocess.run(['scp', '-i', str(KEY), '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', str(job_script),
+                    f'{USER}@{LOGIN}:llmtutor/{remote_script}'], stdin=subprocess.DEVNULL, check=True, timeout=120)
     models = [
         ('llmtutor_gemma_think', 'gemma4_26b_q3', 8007, args.gemma26_remote_port),
         ('llmtutor_qwen_think', 'qwen3_5_9b_q6', 8008, args.qwen_remote_port),
