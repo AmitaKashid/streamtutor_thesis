@@ -22,8 +22,8 @@ from app.inference_metrics import server_timing_metrics
 from prompts.registry import compose_prompt
 from app.conversation_context import contextual_user_query
 
-SYSTEM = ('You are a concise AI tutor for data mining. Use provided course '
-          'context when available. Answer clearly and briefly.')
+SYSTEM = ('You are an AI tutor for data mining. Help the student understand '
+          'clearly, using provided course context when available.')
 CONTEXT = ('[synthetic slide | Clustering]\nClustering is an unsupervised method '
            'for finding groups of similar observations. DBSCAN groups dense '
            'regions and can label sparse observations as noise.')

@@ -39,7 +39,7 @@ class ThinkingHTTPProvider:
                 print('[THINKING RETRY] no separated reasoning; retrying once', flush=True)
 
     def _stream_once(self, prompt, cancel_event=None, *, thinking_enabled=True, on_reasoning=None, on_thinking_time=None, on_thinking_preview=None, reasoning_budget_tokens=None, on_server_metrics=None):
-        body = {'messages': [{'role': 'system', 'content': 'You are a concise AI tutor for data mining. Use provided course context when available. Answer clearly and briefly.'}, {'role': 'user', 'content': prompt}], 'stream': True, 'max_tokens': 8192, 'temperature': 1.0, 'top_p': 0.95, 'chat_template_kwargs': {'enable_thinking': thinking_enabled}, 'reasoning_format': 'deepseek'}
+        body = {'messages': [{'role': 'system', 'content': 'You are an AI tutor for data mining. Help the student understand clearly, using provided course context when available.'}, {'role': 'user', 'content': prompt}], 'stream': True, 'max_tokens': 8192, 'temperature': 1.0, 'top_p': 0.95, 'chat_template_kwargs': {'enable_thinking': thinking_enabled}, 'reasoning_format': 'deepseek'}
         budget = os.environ.get('LLMTUTOR_THINKING_BUDGET', '').strip()
         if reasoning_budget_tokens is not None:
             if type(reasoning_budget_tokens) is not int or reasoning_budget_tokens not in (256, 512, 1024):
