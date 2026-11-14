@@ -52,3 +52,22 @@ class RetrievalHistoryTests(unittest.TestCase):
         self.assertFalse(p.has_explicit_reference('75th slide', [75, 25]))
 
 if __name__ == '__main__': unittest.main()
+
+class LegacyStreamTests(unittest.TestCase):
+    def test_legacy_stream_does_not_invent_completion_or_server_timings(self):
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def raise_for_status(self): pass
+            def iter_lines(self, decode_unicode=False):
+                yield b'{"delta":"A "}'
+                yield b'{"delta":"response."}'
+                yield b'{"done":true}'
+        with patch.object(p.requests, 'post', return_value=Response()) as post:
+            result = p.generate_legacy('http://test', 'prompt')
+        self.assertEqual(result['answer'], 'A response.')
+        self.assertTrue(result['stream_done'])
+        self.assertFalse(result['completion_verified'])
+        self.assertIsNone(result['finish_reason'])
+        self.assertNotIn('serverPrefillSeconds', result)
+        self.assertTrue(post.call_args.args[0].endswith('/stream'))
