@@ -777,6 +777,8 @@ def run_llm_tts_pipeline(
         if event_cb is None:
             return
         try:
+            if payload.get("type") == "metrics":
+                payload = {**payload, "turn_id": evaluation_turn_id}
             event_cb(payload)
         except Exception:
             pass
@@ -785,6 +787,8 @@ def run_llm_tts_pipeline(
     emit({"type": "tutor_turn_started", "turn_id": evaluation_turn_id,
           "delivery_mode": "audio" if tts_enabled else "text",
           "model": getattr(args, "llm_model", None)})
+    if stt_time > 0:
+        emit({"type": "metrics", "data": {"stt": stt_time, "sttBackend": getattr(args, "stt_backend", None)}})
     print_effective_config(args)
     emit({
         "type": "config_applied",

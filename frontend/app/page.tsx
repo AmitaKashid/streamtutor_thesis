@@ -119,7 +119,7 @@ type ServerEvent =
   | { type: "llm_answer_progress"; turn_id: string; seconds: number }
   | { type: "assistant_done"; turn_id?: string }
   | { type: "sources"; data: SourceItem[] }
-  | { type: "metrics"; data: MetricState }
+  | { type: "metrics"; turn_id: string; data: MetricState }
   | { type: "captured_text"; text: string }
   | { type: "transcript_partial"; text: string }
   | { type: "transcript_final"; text: string }
@@ -527,8 +527,10 @@ function useTutorSocket(url: string) {
             playbackTurnIdRef.current = data.turn_id;
             updateResponse({ type: "start", audio: data.delivery_mode === "audio" });
             const turnModel = data.model ?? null;
-            currentTurnMetricsRef.current = { ...currentTurnMetricsRef.current, model: turnModel, thinkingTime: null, llmAnswerTime: null };
-            setMetrics((prev) => ({ ...prev, model: turnModel, thinkingTime: null, llmAnswerTime: null }));
+            // Each turn starts with a clean record, including voice and barge-in turns.
+            currentTurnMetricsRef.current = { model: turnModel, thinkingTime: null, llmAnswerTime: null };
+            hasRecordedCurrentTurnRef.current = false;
+            setMetrics({ model: turnModel, thinkingTime: null, llmAnswerTime: null });
             deliveryModeRef.current = data.delivery_mode;
             streamEndedRef.current = false;
             receivedAudioRef.current = false;
@@ -771,6 +773,8 @@ function useTutorSocket(url: string) {
           }
 
           if (data.type === "metrics") {
+            // Late metrics from a stopped or superseded turn must not affect this row.
+            if (!data.turn_id || data.turn_id !== playbackTurnIdRef.current) return;
             const incoming = data.data;
 
             // Record immediately: assistant_done can arrive before React runs

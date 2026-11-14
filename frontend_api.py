@@ -1346,13 +1346,6 @@ async def websocket_endpoint(websocket: WebSocket):
                             "type": "stage",
                             "value": "interrupted",
                         })
-                        emit_from_thread({
-                            "type": "metrics",
-                            "data": {
-                                "stt": stt_time,
-                                "sttBackend": args.stt_backend,
-                            },
-                        })
                         launch_pipeline(
                             transcript=transcript,
                             interruption_text=transcript,
@@ -1534,15 +1527,6 @@ async def websocket_endpoint(websocket: WebSocket):
                 emit_from_thread({
                     "type": "user_transcript_final",
                     "text": transcript,
-                })
-
-                # Send STT latency immediately so the UI/pie chart updates before TTS finishes.
-                emit_from_thread({
-                    "type": "metrics",
-                    "data": {
-                        "stt": stt_time,
-                        "sttBackend": args.stt_backend,
-                    },
                 })
 
                 launch_pipeline(transcript=transcript, stt_time=stt_time)
