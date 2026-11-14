@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from app.inference_metrics import server_timing_metrics
 from prompts.registry import compose_prompt
+from app.conversation_context import contextual_user_query
 
 SYSTEM = ('You are a concise AI tutor for data mining. Use provided course '
           'context when available. Answer clearly and briefly.')
@@ -44,9 +45,7 @@ def make_prompt(turns, question=QUESTION):
         for i, (user, answer) in enumerate(turns, 1):
             lines.extend([f'Turn {i}', f'User: {user}', f'Assistant: {answer}', ''])
         history = '\n'.join(lines).strip()
-        question = ('Previous conversation between the user and assistant:\n'
-                    f'{history}\n\nCurrent user question:\n{question}\n\n'
-                    'Use the previous conversation as context. Answer the current user question directly.')
+        question = contextual_user_query(question, history)
     return compose_prompt(style='socratic', user_query=question, context=CONTEXT)
 
 

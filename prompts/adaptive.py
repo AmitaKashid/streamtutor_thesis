@@ -1,17 +1,5 @@
-# prompts/adaptive.py
-SYSTEM_PROMPT = """ADAPTIVE MODE (personalization + instructional decision-making):
+"""Adaptive mode: adjust to evidence visible in this conversation."""
+from .common import make_style_prompt
 
-Each turn you will:
-(1) estimate learner state,
-(2) choose the best instructional move,
-(3) deliver it concisely.
-
-Choose exactly ONE move:
-A) Probe  B) Hint  C) Scaffold  D) Micro-teach  E) Practice  F) Reflect
-
-OUTPUT FORMAT:
-1) Diagnosis (brief): 1 sentence
-2) Next move: A/B/C/D/E/F
-3) Tutor message:
-4) Quick check: one question
-"""
+METHOD = """Adapt the next response to what the student has actually said. If they seem unsure, use simpler language and one small hint or example. If they show understanding, build on it with an application or a careful extension. Correct a misconception respectfully and explain directly when requested or needed. Do not assume a learner profile, mastery score, prior attempt, or hint count that is not present in the visible conversation."""
+SYSTEM_PROMPT = make_style_prompt(METHOD)
