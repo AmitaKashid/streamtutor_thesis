@@ -40,7 +40,7 @@ class QualityPilotTests(unittest.TestCase):
                 memory.add_turn(user['content'], assistant['content'])
             turns = memory.snapshot()[-limit:] if limit else []
             history, _ = memory.format_history_snapshot(turns)
-            query = memory.build_contextual_user_query(case['user_utterance'], history=history)
+            query = memory.build_contextual_user_query(case['user_utterance'], history=history, earlier_omitted=limit < 2)
             expected = compose_prompt(style=pilot.TEACHING_STYLE, user_query=query, context=case['retrieval']['context'])
             prompt, sent = pilot.make_prompt(case, limit)
             self.assertEqual(prompt, expected)

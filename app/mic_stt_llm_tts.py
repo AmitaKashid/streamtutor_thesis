@@ -109,6 +109,7 @@ class ConversationMemory:
     def __init__(self, max_turns: int | None = None, max_chars: int | None = None):
         self._lock = threading.Lock()
         self.turns: list[dict[str, str]] = []
+        self._earlier_turns_discarded = False
         self.max_turns = max_turns
         self.max_chars = max_chars
 
@@ -128,20 +129,23 @@ class ConversationMemory:
             )
 
             if self.max_turns is not None and self.max_turns > 0:
+                if len(self.turns) > self.max_turns:
+                    self._earlier_turns_discarded = True
                 self.turns = self.turns[-self.max_turns:]
 
-    def snapshot(self) -> list[dict[str, str]]:
-        """Return the turns currently eligible for the prompt.
-
-        Apply the current limit when reading as well as when appending. This
-        matters when the user lowers the limit between two requests.
-        """
+    def snapshot_with_omission(self) -> tuple[list[dict[str, str]], bool]:
+        """Atomically capture selected turns and whether earlier turns were omitted."""
         with self._lock:
-            turns_copy = [dict(turn) for turn in self.turns]
+            turns = [dict(turn) for turn in self.turns]
             max_turns = self.max_turns
-        if max_turns is not None and max_turns > 0:
-            turns_copy = turns_copy[-max_turns:]
-        return turns_copy
+            omitted = self._earlier_turns_discarded
+        if max_turns is not None and max_turns > 0 and len(turns) > max_turns:
+            turns = turns[-max_turns:]
+            omitted = True
+        return turns, omitted
+
+    def snapshot(self) -> list[dict[str, str]]:
+        return self.snapshot_with_omission()[0]
 
     def format_history_snapshot(self, turns: list[dict[str, str]]) -> tuple[str, int]:
         """Format selected turns and count turns with any text in the result."""
@@ -165,21 +169,17 @@ class ConversationMemory:
         history, _ = self.format_history_snapshot(self.snapshot() if turns is None else turns)
         return history
 
-    def build_contextual_user_query(self, current_user_query: str, history: str | None = None) -> str:
-        current_user_query = (current_user_query or "").strip()
+    def build_contextual_user_query(self, current_user_query: str, history: str | None = None,
+                                    *, earlier_omitted: bool | None = None) -> str:
+        from app.conversation_context import contextual_user_query
         if history is None:
-            history = self.format_history()
-
-        if not history:
-            return current_user_query
-
-        return (
-            "Previous conversation between the user and assistant:\n"
-            f"{history}\n\n"
-            "Current user question:\n"
-            f"{current_user_query}\n\n"
-            "Use the previous conversation as context. Answer the current user question directly."
-        )
+            turns, snapshot_omitted = self.snapshot_with_omission()
+            history, _ = self.format_history_snapshot(turns)
+            if earlier_omitted is None:
+                earlier_omitted = snapshot_omitted
+        if history.startswith("[Conversation history truncated to most recent characters]\n"):
+            earlier_omitted = True
+        return contextual_user_query(current_user_query, history, earlier_omitted=bool(earlier_omitted))
 
     def stats(self) -> dict:
         history = self.format_history()
@@ -884,14 +884,14 @@ def run_llm_tts_pipeline(
     history_turn_count = 0
     if getattr(args, "conversation_context", False) and conversation_memory is not None:
         # Use the same selected turns and formatted text for the prompt and metrics.
-        previous_turns = conversation_memory.snapshot()
+        previous_turns, history_omitted = conversation_memory.snapshot_with_omission()
         history, history_turn_count = conversation_memory.format_history_snapshot(previous_turns)
         history_snapshot = tuple(msg for turn in previous_turns for msg in (
             {"role": "user", "content": turn["user"]},
             {"role": "assistant", "content": turn["assistant"]},
         ))
         final_user_query = conversation_memory.build_contextual_user_query(
-            current_user_query=final_user_query, history=history
+            current_user_query=final_user_query, history=history, earlier_omitted=history_omitted
         )
 
         print("\n[CONVERSATION CONTEXT]")
