@@ -133,6 +133,12 @@ class ConversationMemory:
                     self._earlier_turns_discarded = True
                 self.turns = self.turns[-self.max_turns:]
 
+    def clear(self) -> None:
+        """Clear only this session's conversation history."""
+        with self._lock:
+            self.turns.clear()
+            self._earlier_turns_discarded = False
+
     def snapshot_with_omission(self) -> tuple[list[dict[str, str]], bool]:
         """Atomically capture selected turns and whether earlier turns were omitted."""
         with self._lock:

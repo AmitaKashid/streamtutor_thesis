@@ -766,6 +766,8 @@ def list_tts_speakers():
         "default_speaker": QWEN3_TTS_SPEAKER,
         "default_language": QWEN3_TTS_LANGUAGE,
     }
+from app.context_reset import clear_context_if_idle
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -788,6 +790,7 @@ async def websocket_endpoint(websocket: WebSocket):
     pipeline_lock = threading.Lock()
     request_cancel_lock = threading.Lock()
     request_cancel_events: set[threading.Event] = set()
+    audio_processing = threading.Event()
     tts_busy = threading.Event()
     drain_after_tts = threading.Event()
 
@@ -1272,6 +1275,10 @@ async def websocket_endpoint(websocket: WebSocket):
             except queue.Empty:
                 continue
             
+            with request_cancel_lock:
+                if not mic_enabled.is_set():
+                    continue
+                audio_processing.set()
             try:
                 if not mic_enabled.is_set():
                     continue
@@ -1547,6 +1554,9 @@ async def websocket_endpoint(websocket: WebSocket):
                     "value": "listening" if mic_enabled.is_set() else "idle",
                 })
                 continue
+            finally:
+                with request_cancel_lock:
+                    audio_processing.clear()
     worker_thread = threading.Thread(target=worker, daemon=True)
     worker_thread.start()
 
@@ -1558,6 +1568,14 @@ async def websocket_endpoint(websocket: WebSocket):
             data = json.loads(raw)
             action = data.get("action")
             config = data.get("config") or {}
+
+            if action == "clear_context":
+                cleared = clear_context_if_idle(
+                    conversation_memory, pipeline_lock, request_cancel_lock,
+                    request_cancel_events, mic_enabled, audio_processing,
+                )
+                await ws_send({"type": "context_cleared" if cleared else "context_clear_rejected"})
+                continue
 
             if action == "barge_in":
                 apply_config(config)
