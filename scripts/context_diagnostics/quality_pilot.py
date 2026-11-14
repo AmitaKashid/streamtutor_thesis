@@ -17,6 +17,7 @@ import requests
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from app.inference_metrics import server_timing_metrics
+from app.conversation_context import contextual_user_query
 from prompts.registry import compose_prompt
 from scripts.context_diagnostics.probe import SYSTEM
 
@@ -53,12 +54,9 @@ def make_prompt(case, history_limit):
     turns = list(zip(history[::2], history[1::2]))
     selected = turns[-history_limit:] if history_limit else []
     question = case['user_utterance'].strip()
-    if selected:
-        blocks = [f"Turn {i}\nUser: {u['content'].strip()}\nAssistant: {a['content'].strip()}"
-                  for i, (u, a) in enumerate(selected, 1)]
-        question = ('Previous conversation between the user and assistant:\n' + '\n\n'.join(blocks)
-                    + '\n\nCurrent user question:\n' + question
-                    + '\n\nUse the previous conversation as context. Answer the current user question directly.')
+    blocks = [f"Turn {i}\nUser: {u['content'].strip()}\nAssistant: {a['content'].strip()}"
+              for i, (u, a) in enumerate(selected, 1)]
+    question = contextual_user_query(question, '\n\n'.join(blocks), earlier_omitted=len(selected) < len(turns))
     prompt = compose_prompt(style=TEACHING_STYLE, user_query=question,
                             context=case['retrieval']['context'])
     return prompt, len(selected)
