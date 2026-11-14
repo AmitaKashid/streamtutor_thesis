@@ -60,6 +60,8 @@ def generate_legacy(url, prompt):
     first = None
     text_parts = []
     done = False
+    finish_reason = None
+    native_metrics = {}
     with requests.post(url.rstrip('/') + '/stream', json={'prompt': prompt},
                        stream=True, timeout=(5, 300)) as response:
         response.raise_for_status()
@@ -71,6 +73,9 @@ def generate_legacy(url, prompt):
                 raise RuntimeError('Legacy stream returned an error')
             if event.get('done'):
                 done = True
+                finish_reason = event.get('finish_reason')
+                if isinstance(event.get('metrics'), dict):
+                    native_metrics = event['metrics']
                 break
             chunk = event.get('delta') or ''
             if not isinstance(chunk, str):
@@ -81,8 +86,8 @@ def generate_legacy(url, prompt):
                 text_parts.append(chunk)
     return {'answer': ''.join(text_parts), 'first_answer_seconds': first,
             'wall_seconds': time.perf_counter() - start, 'stream_done': done,
-            'finish_reason': None, 'unexpected_reasoning': None,
-            'completion_verified': False}
+            'finish_reason': finish_reason, 'unexpected_reasoning': None,
+            'completion_verified': finish_reason == 'stop', **native_metrics}
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -139,8 +144,8 @@ def main():
                             'serverOutputTokens', 'serverDecodeSeconds')
                 row['metrics_complete'] = all(k in row for k in required)
                 row['complete'] = bool(row.get('stream_done') and row.get('finish_reason') == 'stop'
-                                       and not row.get('unexpected_reasoning') and row.get('answer', '').strip())
-                row['completion_verified'] = bool(row['complete']) if args.protocol == 'llama-server' else False
+                                       and row.get('unexpected_reasoning') is not True and row.get('answer', '').strip())
+                row['completion_verified'] = bool(row['complete'])
                 # Legacy done can be emitted after server errors, so report only transport evidence.
                 row['transport_usable'] = bool(row.get('stream_done') and row.get('answer', '').strip())
                 failures += (not row['complete'] or not row['metrics_complete']) if args.protocol == 'llama-server' else not row['transport_usable']
@@ -148,7 +153,7 @@ def main():
                 print(f"{case['question_id']} history={actual} finish={row.get('finish_reason', row.get('error_type'))} complete={row['complete']} metrics={row['metrics_complete']}", flush=True)
         print(f'Saved {args.output}; unusable={failures}. Manual evidence and answer review required.')
         if args.protocol == 'legacy':
-            print('Legacy: server finish reason and prefill/decode timings unavailable; completion is unverified.')
+            print('Legacy: exact prefill/decode and token usage may be unavailable; inspect finish_reason and native metrics.')
         return 1 if failures else 0
     except (ImportError, OSError, KeyError, ValueError) as exc:
         print(f'Pilot could not continue: {type(exc).__name__}: {exc}', file=sys.stderr)

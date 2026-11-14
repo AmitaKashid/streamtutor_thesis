@@ -3,8 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Iterator, Optional, Tuple
 import time
+import math
 
-from llama_cpp import Llama, llama_chat_format
+from llama_cpp import Llama, llama_chat_format, llama_cpp
 
 from .base import LLMProvider, GenerationResult
 from .response_protocols import (
@@ -139,25 +140,59 @@ class LlamaCppProvider(LLMProvider):
             protocol_error=protocol_error,
         )
 
-    def stream(self, user_text: str) -> Iterator[str]:
-        messages = self._messages(user_text)
+    def stream_events(self, user_text: str):
+        """Emit deltas and native finish reason; timings are optional native counters.
 
-        stream = self.llm.create_chat_completion(
-            messages=messages,
-            max_tokens=self.max_new_tokens,
-            temperature=self.temperature,
-            top_p=self.top_p,
-            stream=True,
-        )
-
-        for event in stream:
+        Calls using the same model must be serialized by the server. The native
+        counters measure batched and single-token evaluation, which are not
+        necessarily equivalent to prompt prefill and output decoding.
+        """
+        ctx = getattr(getattr(self.llm, '_ctx', None), 'ctx', None)
+        perf_available = False
+        if ctx is not None:
             try:
-                delta = event["choices"][0].get("delta", {})
-                piece = delta.get("content")
+                llama_cpp.llama_perf_context_reset(ctx)
+                perf_available = True
+            except (AttributeError, TypeError, RuntimeError):
+                pass
+        stream = self.llm.create_chat_completion(
+            messages=self._messages(user_text), max_tokens=self.max_new_tokens,
+            temperature=self.temperature, top_p=self.top_p, stream=True,
+        )
+        finish_reason = None
+        usage = None
+        for event in stream:
+            if isinstance(event.get('usage'), dict):
+                usage = event['usage']
+            for choice in event.get('choices') or []:
+                finish_reason = choice.get('finish_reason') or finish_reason
+                piece = (choice.get('delta') or {}).get('content')
                 if piece:
-                    yield piece
-            except Exception:
-                continue
+                    yield {'delta': piece}
+        metrics = {}
+        if usage:
+            for source, target in (('prompt_tokens', 'serverPromptTokens'),
+                                   ('completion_tokens', 'serverOutputTokens')):
+                value = usage.get(source)
+                if type(value) is int and value >= 0:
+                    metrics[target] = value
+        if perf_available:
+            try:
+                perf = llama_cpp.llama_perf_context(ctx)
+                if perf.n_p_eval > 0 and math.isfinite(perf.t_p_eval_ms) and perf.t_p_eval_ms >= 0:
+                    metrics['legacyBatchedEvalSeconds'] = perf.t_p_eval_ms / 1000.0
+                    metrics['legacyBatchedEvalTokens'] = perf.n_p_eval
+                if perf.n_eval > 0 and math.isfinite(perf.t_eval_ms) and perf.t_eval_ms >= 0:
+                    metrics['legacySingleEvalSeconds'] = perf.t_eval_ms / 1000.0
+                    metrics['legacySingleEvalCalls'] = perf.n_eval
+            except (AttributeError, TypeError, RuntimeError):
+                pass
+        yield {'done': True, 'finish_reason': finish_reason, 'metrics': metrics}
+
+    def stream(self, user_text: str) -> Iterator[str]:
+        for event in self.stream_events(user_text):
+            if event.get('delta'):
+                yield event['delta']
 
     def stream_with_timing(self, user_text: str) -> Iterator[Tuple[str, dict]]:
         messages = self._messages(user_text)

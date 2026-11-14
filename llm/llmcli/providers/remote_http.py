@@ -81,30 +81,30 @@ class RemoteHTTPProvider(LLMProvider):
         )
 
     def stream(self, user_text: str) -> Iterator[str]:
-        """
-        Streaming API.
-        Expects newline-delimited JSON from the server:
-          {"delta": "some text"}
-          {"delta": " more text"}
-          {"done": true}
-        """
-        with requests.post(
-            self._url("/stream"),
-            json={"prompt": user_text},
-            timeout=(self.connect_timeout, self.read_timeout),
-            stream=True,
-        ) as resp:
-            resp.raise_for_status()
+        yield from self.stream_with_metrics(user_text)
 
-            for line in resp.iter_lines(decode_unicode=True):
+    def stream_with_metrics(self, user_text: str, on_server_metrics=None) -> Iterator[str]:
+        """Consume NDJSON; old servers remain supported but cannot verify success."""
+        with requests.post(self._url("/stream"), json={"prompt": user_text},
+                           timeout=(self.connect_timeout, self.read_timeout), stream=True) as resp:
+            resp.raise_for_status()
+            done = False
+            for line in resp.iter_lines(decode_unicode=False):
                 if not line:
                     continue
-
-                data = json.loads(line)
-
-                if data.get("done"):
+                data = json.loads(line.decode('utf-8'))
+                if data.get('error'):
+                    raise RuntimeError('Remote model generation failed')
+                if data.get('done'):
+                    done = True
+                    reason = data.get('finish_reason')
+                    if reason and reason != 'stop':
+                        raise RuntimeError(f'Remote model generation ended: {reason}')
+                    if reason == 'stop' and on_server_metrics and isinstance(data.get('metrics'), dict):
+                        on_server_metrics(data['metrics'])
                     break
-
-                delta = data.get("delta")
+                delta = data.get('delta')
                 if delta:
                     yield delta
+            if not done:
+                raise RuntimeError('Remote model stream ended without completion')
