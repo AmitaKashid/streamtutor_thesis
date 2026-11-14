@@ -1,5 +1,7 @@
 # Pedagogical prompts for StreamTutor
 
+**Update for `pedagogy-v1.2.0`:** Introductory questions request a self-contained definition, mechanism, worked illustrative example, relevant uses and limitations, and a takeaway. Examples must be labelled and consistent; unverified slide-table values must not be treated as a validated dataset. These are instructions, not a guarantee of factual correctness. Versions and counts below remain historical; live quality and latency must be re-evaluated.
+
 **Update for `pedagogy-v1.1.0`:** The former 70-word and no-headings instructions described below apply to v1.0.0. Version 1.1.0 removes that target, requests structured explanations and examples for introductory questions, and updates the Qwen provider system instruction. Evaluate the longer answers and TTS playback; earlier token, latency and cache measurements are separate conditions. The remaining v1.0.0 word counts and historical analysis below are retained as a baseline.
 
 Version: `pedagogy-v1.0.0`. Status: implemented candidate; model behavior, pedagogical effectiveness, learning gains, safety and latency remain unverified. Scope: the existing Socratic, inquiry, adaptive and collaborative modes. The user's memorandum is a design input, not evidence that its claims were implemented or validated.

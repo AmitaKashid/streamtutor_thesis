@@ -42,7 +42,7 @@ class TokenMeasureTest(unittest.TestCase):
                 with patch('sys.argv', argv), redirect_stdout(StringIO()): self.assertEqual(measure.main(), 0)
                 data = json.loads(out.read_text(encoding='utf-8'))
                 self.assertEqual(len(data['rows']), 8)
-                self.assertEqual(set(row['version'] for row in data['rows']), {'baseline-v0', 'pedagogy-v1.1.0'})
+                self.assertEqual(set(row['version'] for row in data['rows']), {'baseline-v0', 'pedagogy-v1.2.0'})
                 self.assertEqual(len({(row['style'], row['version']) for row in data['rows']}), 8)
                 self.assertTrue(all(row['full_prompt_tokens'] > 0 for row in data['rows']))
                 self.assertEqual(server.assertions, [('system', False)] * 8)
