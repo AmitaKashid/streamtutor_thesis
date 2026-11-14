@@ -1307,6 +1307,10 @@ def run_llm_tts_pipeline(
                     on_thinking_preview=preview_thinking_time,
                     on_server_metrics=lambda metrics: emit({"type": "metrics", "data": metrics}),
                 )
+            elif hasattr(llm, "stream_with_metrics"):
+                stream = llm.stream_with_metrics(
+                    llm_prompt, on_server_metrics=lambda metrics: emit({"type": "metrics", "turn_id": evaluation_turn_id, "data": metrics})
+                )
             else:
                 stream = (llm.stream_with_cancel(llm_prompt, playback.interrupted)
                           if hasattr(llm, "stream_with_cancel") else llm.stream(llm_prompt))

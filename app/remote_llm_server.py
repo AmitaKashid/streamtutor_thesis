@@ -4,10 +4,12 @@ import argparse
 import json
 import sys
 import time
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 import uvicorn
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +22,7 @@ from llm.llmcli.providers.llamacpp import LlamaCppProvider
 app = FastAPI(title="Remote LLM Server")
 
 LLM = None
+LLM_LOCK = threading.Lock()
 
 
 def build_llm(
@@ -128,7 +131,11 @@ async def generate(request: Request):
     prompt = (body.get("prompt") or "").strip()
 
     t0 = time.perf_counter()
-    res = LLM.generate(prompt)
+    def run_locked():
+        with LLM_LOCK:
+            return LLM.generate(prompt)
+
+    res = await run_in_threadpool(run_locked)
     total_s = time.perf_counter() - t0
 
     return JSONResponse(
@@ -151,11 +158,14 @@ async def stream(request: Request):
     prompt = (body.get("prompt") or "").strip()
 
     def event_iter():
-        try:
-            for piece in LLM.stream(prompt):
-                yield json.dumps({"delta": piece}) + "\n"
-        finally:
-            yield json.dumps({"done": True}) + "\n"
+        # Native counters are process-wide for the model context. Serialize the
+        # entire request so another generation cannot mix its timing values.
+        with LLM_LOCK:
+            try:
+                for event in LLM.stream_events(prompt):
+                    yield json.dumps(event) + "\n"
+            except Exception as exc:
+                yield json.dumps({"error": {"type": type(exc).__name__}}) + "\n"
 
     return StreamingResponse(event_iter(), media_type="application/x-ndjson")
 
