@@ -12,7 +12,7 @@ from app.conversation_context import contextual_user_query
 class PedagogicalPromptTests(unittest.TestCase):
     def test_four_modes_share_policy_but_have_distinct_methods(self):
         modules = (socratic, inquiry, adaptive, collaborative)
-        self.assertEqual(PROMPT_SET_VERSION, 'pedagogy-v1.0.0')
+        self.assertEqual(PROMPT_SET_VERSION, 'pedagogy-v1.1.0')
         self.assertEqual(len({module.METHOD for module in modules}), 4)
         for module in modules:
             with self.subTest(module=module.__name__):
@@ -21,6 +21,12 @@ class PedagogicalPromptTests(unittest.TestCase):
                 self.assertIn(module.METHOD, module.SYSTEM_PROMPT)
                 self.assertNotIn('[STATE:', module.SYSTEM_PROMPT)
                 self.assertNotIn('[END]', module.SYSTEM_PROMPT)
+
+    def test_introductory_explanations_are_not_forced_to_be_short(self):
+        self.assertIn('beginner-friendly definition', VOICE_POLICY)
+        self.assertIn('concrete illustrative example', VOICE_POLICY)
+        self.assertIn('Do not impose a fixed word limit', VOICE_POLICY)
+        self.assertNotIn('at most 70 words', VOICE_POLICY)
 
     def test_question_history_and_rag_survive_composition(self):
         history = 'Turn 1\nUser: My dataset has 73 positive records.\nAssistant: Understood.'
