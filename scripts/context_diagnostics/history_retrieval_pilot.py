@@ -11,6 +11,8 @@ import json
 import random
 import re
 import sys
+import time
+import requests
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -51,6 +53,37 @@ def has_explicit_reference(context, percentages):
                for p in percentages)
 
 
+
+def generate_legacy(url, prompt):
+    """Read the app's NDJSON stream; it has no verified finish or server timings."""
+    start = time.perf_counter()
+    first = None
+    text_parts = []
+    done = False
+    with requests.post(url.rstrip('/') + '/stream', json={'prompt': prompt},
+                       stream=True, timeout=(5, 300)) as response:
+        response.raise_for_status()
+        for line in response.iter_lines(decode_unicode=False):
+            if not line:
+                continue
+            event = json.loads(line.decode('utf-8'))
+            if event.get('error'):
+                raise RuntimeError('Legacy stream returned an error')
+            if event.get('done'):
+                done = True
+                break
+            chunk = event.get('delta') or ''
+            if not isinstance(chunk, str):
+                raise ValueError('Invalid legacy stream delta')
+            if chunk:
+                if first is None and chunk.strip():
+                    first = time.perf_counter() - start
+                text_parts.append(chunk)
+    return {'answer': ''.join(text_parts), 'first_answer_seconds': first,
+            'wall_seconds': time.perf_counter() - start, 'stream_done': done,
+            'finish_reason': None, 'unexpected_reasoning': None,
+            'completion_verified': False}
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--url', required=True)
@@ -59,6 +92,8 @@ def main():
     parser.add_argument('--rag-config', default='configs/retrieval.yaml')
     parser.add_argument('--top-k', type=int, default=2)
     parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--protocol', choices=('llama-server', 'legacy'), default='llama-server',
+                        help='legacy: app /stream; no reliable finish reason or server timing metrics')
     args = parser.parse_args()
     if args.top_k < 1: parser.error('--top-k must be positive')
     try:
@@ -75,7 +110,7 @@ def main():
         leak = has_explicit_reference(context, [75, 25, 60, 40])
         failures = 0
         with open(args.output, 'x', encoding='utf-8') as out:
-            print(f'8 synthetic requests, live retrieval once, top_k={args.top_k}, explicit_reference_in_rag={leak}', flush=True)
+            print(f'8 synthetic requests, live retrieval once, protocol={args.protocol}, top_k={args.top_k}, explicit_reference_in_rag={leak}', flush=True)
             for case, limit, prompt, actual in schedule:
                 row = {'schema': 'history-retrieval-pilot-v1', 'question_id': case['question_id'],
                        'question': QUESTION, 'full_history': case['conversation_history'],
@@ -83,8 +118,11 @@ def main():
                        'reference_key_points': case['reference_key_points'],
                        'synthetic': True, 'source_validation': 'pending_human_review',
                        'model_label': args.model_label, 'teaching_style': TEACHING_STYLE,
-                       'thinking_enabled': False, 'cache_prompt_requested': False,
-                       'temperature': 0, 'max_output_tokens': 1024, 'seed': args.seed,
+                       'protocol': args.protocol,
+                       'thinking_enabled': False if args.protocol == 'llama-server' else None,
+                       'cache_prompt_requested': False if args.protocol == 'llama-server' else None,
+                       'temperature': 0 if args.protocol == 'llama-server' else None,
+                       'max_output_tokens': 1024 if args.protocol == 'llama-server' else None, 'seed': args.seed,
                        'rag_config': args.rag_config, 'retrieval_query': QUESTION,
                        'top_k_requested': args.top_k, 'retrieved_hits': meta, 'rag_context': context,
                        'rag_sha256': hashlib.sha256(context.encode()).hexdigest(),
@@ -92,7 +130,8 @@ def main():
                        'explicit_reference_in_rag': leak,
                        'prompt_sha256': hashlib.sha256(prompt.encode()).hexdigest()}
                 try:
-                    row.update(generate(args.url, prompt))
+                    row.update(generate_legacy(args.url, prompt) if args.protocol == 'legacy'
+                               else generate(args.url, prompt))
                 except Exception as exc:
                     # Preserve failures without logging the request or sensitive response text.
                     row.update({'error_type': type(exc).__name__, 'stream_done': False})
@@ -101,10 +140,15 @@ def main():
                 row['metrics_complete'] = all(k in row for k in required)
                 row['complete'] = bool(row.get('stream_done') and row.get('finish_reason') == 'stop'
                                        and not row.get('unexpected_reasoning') and row.get('answer', '').strip())
-                failures += not row['complete'] or not row['metrics_complete']
+                row['completion_verified'] = bool(row['complete']) if args.protocol == 'llama-server' else False
+                # Legacy done can be emitted after server errors, so report only transport evidence.
+                row['transport_usable'] = bool(row.get('stream_done') and row.get('answer', '').strip())
+                failures += (not row['complete'] or not row['metrics_complete']) if args.protocol == 'llama-server' else not row['transport_usable']
                 out.write(json.dumps(row, ensure_ascii=False) + '\n'); out.flush()
                 print(f"{case['question_id']} history={actual} finish={row.get('finish_reason', row.get('error_type'))} complete={row['complete']} metrics={row['metrics_complete']}", flush=True)
-        print(f'Saved {args.output}; incomplete={failures}. Manual evidence and answer review required.')
+        print(f'Saved {args.output}; unusable={failures}. Manual evidence and answer review required.')
+        if args.protocol == 'legacy':
+            print('Legacy: server finish reason and prefill/decode timings unavailable; completion is unverified.')
         return 1 if failures else 0
     except (ImportError, OSError, KeyError, ValueError) as exc:
         print(f'Pilot could not continue: {type(exc).__name__}: {exc}', file=sys.stderr)
