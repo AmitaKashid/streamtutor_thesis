@@ -119,7 +119,8 @@ type ServerEvent =
   | { type: "llm_answer_progress"; turn_id: string; seconds: number }
   | { type: "assistant_done"; turn_id?: string }
   | { type: "sources"; data: SourceItem[] }
-  | { type: "metrics"; data: MetricState }
+  | { type: "metrics"; turn_id: string; data: MetricState }
+  | { type: "context_cleared" | "context_clear_rejected" }
   | { type: "captured_text"; text: string }
   | { type: "transcript_partial"; text: string }
   | { type: "transcript_final"; text: string }
@@ -316,6 +317,8 @@ function toBackendConfig(config: TutorConfig) {
 
 function useTutorSocket(url: string) {
   const [connected, setConnected] = useState(false);
+  const [contextPending, setContextPending] = useState(false);
+  const [contextNotice, setContextNotice] = useState("");
   const [stage, setStage] = useState<Stage>("idle");
   const [responseState, setResponseState] = useState(idleResponse);
   const responseStateRef = useRef(responseState);
@@ -493,6 +496,8 @@ function useTutorSocket(url: string) {
       ws.onclose = () => {
         if (disposed || wsRef.current !== ws) return;
         setConnected(false);
+        setContextPending(false);
+        setContextNotice("");
         stopBrowserAudio();
         updateResponse({ type: "reset" });
         reconnectTimer = setTimeout(connect, 1000);
@@ -514,6 +519,12 @@ function useTutorSocket(url: string) {
         try {
           const data: ServerEvent = JSON.parse(event.data);
 
+          if (data.type === "context_cleared" || data.type === "context_clear_rejected") {
+            setContextPending(false);
+            setContextNotice(data.type === "context_cleared" ? "Context cleared" : "Stop the response and microphone first");
+            return;
+          }
+
           if (data.type === "config_applied") {
             console.log("Backend applied config:", data.data);
             return;
@@ -527,8 +538,10 @@ function useTutorSocket(url: string) {
             playbackTurnIdRef.current = data.turn_id;
             updateResponse({ type: "start", audio: data.delivery_mode === "audio" });
             const turnModel = data.model ?? null;
-            currentTurnMetricsRef.current = { ...currentTurnMetricsRef.current, model: turnModel, thinkingTime: null, llmAnswerTime: null };
-            setMetrics((prev) => ({ ...prev, model: turnModel, thinkingTime: null, llmAnswerTime: null }));
+            // Each turn starts with a clean record, including voice and barge-in turns.
+            currentTurnMetricsRef.current = { model: turnModel, thinkingTime: null, llmAnswerTime: null };
+            hasRecordedCurrentTurnRef.current = false;
+            setMetrics({ model: turnModel, thinkingTime: null, llmAnswerTime: null });
             deliveryModeRef.current = data.delivery_mode;
             streamEndedRef.current = false;
             receivedAudioRef.current = false;
@@ -771,6 +784,8 @@ function useTutorSocket(url: string) {
           }
 
           if (data.type === "metrics") {
+            // Late metrics from a stopped or superseded turn must not affect this row.
+            if (!data.turn_id || data.turn_id !== playbackTurnIdRef.current) return;
             const incoming = data.data;
 
             // Record immediately: assistant_done can arrive before React runs
@@ -835,6 +850,12 @@ function useTutorSocket(url: string) {
     return true;
   };
 
+  const clearContext = () => {
+    if (contextPending) return;
+    setContextNotice("");
+    if (send({ action: "clear_context" })) setContextPending(true);
+  };
+
   const beginResponse = () => {
     if (responseIsActive(responseStateRef.current)) return false;
     playbackTurnIdRef.current = null;
@@ -860,6 +881,7 @@ function useTutorSocket(url: string) {
     stage,
     responseActive: responseIsActive(responseState),
     responseStopping: responseState.cancelling,
+    contextPending, contextNotice, clearContext,
     beginResponse,
     stopResponse,
     messages,
@@ -1222,6 +1244,7 @@ function ConversationPanel({
   listening,
   speechEnabled,
   onSpeechChange,
+  contextDisabled, contextNotice, onClearContext,
   embedded = false,
 }: {
   messages: Message[];
@@ -1230,6 +1253,9 @@ function ConversationPanel({
   listening: boolean;
   speechEnabled: boolean;
   onSpeechChange: (enabled: boolean) => void;
+  contextDisabled: boolean;
+  contextNotice: string;
+  onClearContext: () => void;
   embedded?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -1262,6 +1288,12 @@ function ConversationPanel({
             </h2>
           </div>
           <div className="flex flex-wrap items-center gap-2" aria-label="Response options">
+            <span className="text-xs text-slate-500" role="status">{contextNotice}</span>
+            <button type="button" disabled={contextDisabled} onClick={onClearContext}
+              title="Clear conversation history used for future answers. The visible transcript and server cache are unchanged."
+              className="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm hover:border-blue-200 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+              Clear context
+            </button>
             <button
               type="button" role="switch" aria-label="Read aloud" aria-checked={speechEnabled}
               onClick={() => onSpeechChange(!speechEnabled)} title="Read the tutor’s answer aloud; applies to the next turn"
@@ -1882,6 +1914,7 @@ export default function Page() {
     stage,
     responseActive,
     responseStopping,
+    contextPending, contextNotice, clearContext,
     beginResponse,
     stopResponse,
     messages,
@@ -2229,6 +2262,9 @@ export default function Page() {
                   partialText={partialText}
                   capturedText={capturedText}
                   listening={listening}
+                  contextDisabled={!connected || responseActive || listening || contextPending}
+                  contextNotice={contextNotice}
+                  onClearContext={clearContext}
                   speechEnabled={config.ttsEnabled}
                   onSpeechChange={(ttsEnabled) => setConfig((c) => ({ ...c, ttsEnabled }))}
                   embedded

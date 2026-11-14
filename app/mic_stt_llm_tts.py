@@ -133,6 +133,12 @@ class ConversationMemory:
                     self._earlier_turns_discarded = True
                 self.turns = self.turns[-self.max_turns:]
 
+    def clear(self) -> None:
+        """Clear only this session's conversation history."""
+        with self._lock:
+            self.turns.clear()
+            self._earlier_turns_discarded = False
+
     def snapshot_with_omission(self) -> tuple[list[dict[str, str]], bool]:
         """Atomically capture selected turns and whether earlier turns were omitted."""
         with self._lock:
@@ -777,6 +783,8 @@ def run_llm_tts_pipeline(
         if event_cb is None:
             return
         try:
+            if payload.get("type") == "metrics":
+                payload = {**payload, "turn_id": evaluation_turn_id}
             event_cb(payload)
         except Exception:
             pass
@@ -785,6 +793,8 @@ def run_llm_tts_pipeline(
     emit({"type": "tutor_turn_started", "turn_id": evaluation_turn_id,
           "delivery_mode": "audio" if tts_enabled else "text",
           "model": getattr(args, "llm_model", None)})
+    if stt_time > 0:
+        emit({"type": "metrics", "data": {"stt": stt_time, "sttBackend": getattr(args, "stt_backend", None)}})
     print_effective_config(args)
     emit({
         "type": "config_applied",
