@@ -62,9 +62,9 @@ def make_prompt(case, history_limit):
     return prompt, len(selected)
 
 
-def generate(url, prompt):
+def generate(url, prompt, *, cache_prompt=False, max_tokens=1024):
     body = {'messages': [{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': prompt}],
-            'stream': True, 'max_tokens': 1024, 'temperature': 0, 'cache_prompt': False,
+            'stream': True, 'max_tokens': max_tokens, 'temperature': 0, 'cache_prompt': cache_prompt,
             'chat_template_kwargs': {'enable_thinking': False}, 'reasoning_format': 'deepseek'}
     started = time.perf_counter(); first = None; pieces = []; done = False
     finish = None; metrics = {}; reasoning_seen = False
