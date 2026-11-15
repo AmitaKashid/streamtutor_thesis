@@ -13,7 +13,7 @@ class Response:
     def __enter__(self): return self
     def __exit__(self, *args): pass
     def raise_for_status(self): pass
-    def iter_lines(self, decode_unicode=False):
+    def iter_lines(self, chunk_size=512, decode_unicode=False):
         for i, delta in enumerate(self.events):
             if self.cancel and i == 1:
                 self.cancel.set()

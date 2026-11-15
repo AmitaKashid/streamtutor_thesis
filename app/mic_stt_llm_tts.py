@@ -1271,8 +1271,8 @@ def run_llm_tts_pipeline(
                     return
                 emit_answer_progress(perf_counter())
                 full_answer_parts.append(piece)
+                emit({"type": "llm_chunk", "text": piece})
                 if not tts_enabled:
-                    emit({"type": "llm_chunk", "text": piece})
                     continue
 
                 for chunk_text in chunker.feed([piece]):
@@ -1288,8 +1288,6 @@ def run_llm_tts_pipeline(
 
                     chunks_count += 1
                     print(f"\n[TEXT CHUNK {chunks_count}] {clean_chunk}", flush=True)
-                    emit({"type": "llm_chunk", "text": clean_chunk + " "})
-
                     if first_chunk_sent_to_tts_t is None:
                         first_chunk_sent_to_tts_t = perf_counter()
                     yield StreamingTextChunk(text=clean_chunk + " ", flush=True, is_final=False)
@@ -1339,8 +1337,8 @@ def run_llm_tts_pipeline(
                     return
                 emit_answer_progress(perf_counter())
                 full_answer_parts.append(piece)
+                emit({"type": "llm_chunk", "text": piece})
                 if not tts_enabled:
-                    emit({"type": "llm_chunk", "text": piece})
                     continue
 
                 for chunk_text in chunker.feed([piece]):
@@ -1356,8 +1354,6 @@ def run_llm_tts_pipeline(
 
                     chunks_count += 1
                     print(f"\n[TEXT CHUNK {chunks_count}] {clean_chunk}", flush=True)
-                    emit({"type": "llm_chunk", "text": clean_chunk + " "})
-
                     if first_chunk_sent_to_tts_t is None:
                         first_chunk_sent_to_tts_t = perf_counter()
                     yield StreamingTextChunk(text=clean_chunk + " ", flush=True, is_final=False)
@@ -1374,8 +1370,6 @@ def run_llm_tts_pipeline(
                 if clean_last:
                     chunks_count += 1
                     print(f"\n[TEXT CHUNK {chunks_count}] {clean_last}", flush=True)
-                    emit({"type": "llm_chunk", "text": clean_last + " "})
-
                     if first_chunk_sent_to_tts_t is None:
                         first_chunk_sent_to_tts_t = perf_counter()
                     yield StreamingTextChunk(text=clean_last + " ", flush=True, is_final=True)
@@ -1528,38 +1522,95 @@ def run_llm_tts_pipeline(
 
             tts_timer = Timer()
             voice_prompt = Path(args.voice_prompt) if args.voice_prompt else None
-            if getattr(args, "browser_audio", False):
-                # The web UI's streaming engine synthesizes each flushed text
-                # chunk independently. Keep that boundary with the first PCM
-                # packet instead of guessing from audio packet duration.
-                for text_event in text_event_iter():
-                    if playback.interrupted.is_set():
-                        break
-                    text = text_event.text
-                    if not text:
-                        continue
-                    if not any(char.isalnum() for char in text):
-                        emit({"type": "audio_text", "turn_id": evaluation_turn_id, "text": text})
-                        continue
-                    first_packet = True
-                    for chunk_np, sr in tts_engine.stream_text(
-                        [text_event], voice_prompt=voice_prompt, config=None,
-                    ):
-                        if playback.interrupted.is_set():
-                            break
-                        enqueue_audio_chunk(chunk_np, sr, chunk_text=text if first_packet else None)
-                        first_packet = False
-                    if first_packet and not playback.interrupted.is_set():
-                        raise RuntimeError("TTS returned no audio for a text segment")
-            else:
-                for chunk_np, sr in tts_engine.stream_text(
-                    text_event_iter(), voice_prompt=voice_prompt, config=None,
-                ):
-                    if playback.interrupted.is_set():
-                        break
-                    enqueue_audio_chunk(chunk_np, sr)
+            # Read model deltas independently while the TTS engine is busy.
+            # Bound the queue so long responses cannot grow memory without limit.
+            text_events = queue.Queue(maxsize=32)
+            producer_done = threading.Event()
+            producer_failed = threading.Event()
+            worker_done = threading.Event()
+            worker_failed = threading.Event()
+            worker_errors = []
 
-            # Real TTS processing time if engine exposes it; otherwise fallback
+            def queued_text_events():
+                while not (playback.interrupted.is_set() or producer_failed.is_set()):
+                    try:
+                        event = text_events.get(timeout=0.05)
+                    except queue.Empty:
+                        if producer_done.is_set():
+                            return
+                        continue
+                    yield event
+
+            def run_streaming_tts():
+                try:
+                    if getattr(args, "browser_audio", False):
+                        # Each web streaming engine accepts one flushed text
+                        # segment per request. Associate it with the first PCM
+                        # packet to preserve playback-synchronized text.
+                        for text_event in queued_text_events():
+                            if playback.interrupted.is_set():
+                                break
+                            text = text_event.text
+                            if not text:
+                                continue
+                            if not any(char.isalnum() for char in text):
+                                emit({"type": "audio_text", "turn_id": evaluation_turn_id, "text": text})
+                                continue
+                            first_packet = True
+                            for chunk_np, sr in tts_engine.stream_text(
+                                [text_event], voice_prompt=voice_prompt, config=None,
+                            ):
+                                if playback.interrupted.is_set():
+                                    break
+                                enqueue_audio_chunk(chunk_np, sr, chunk_text=text if first_packet else None)
+                                first_packet = False
+                            if first_packet and not playback.interrupted.is_set():
+                                raise RuntimeError("TTS returned no audio for a text segment")
+                    else:
+                        for chunk_np, sr in tts_engine.stream_text(
+                            queued_text_events(), voice_prompt=voice_prompt, config=None,
+                        ):
+                            if playback.interrupted.is_set():
+                                break
+                            enqueue_audio_chunk(chunk_np, sr)
+                except Exception as exc:
+                    worker_errors.append(exc)
+                    worker_failed.set()
+                    # Cancel model iteration as soon as it next checks the flag.
+                    playback.interrupted.set()
+                finally:
+                    worker_done.set()
+
+            tts_thread = threading.Thread(target=run_streaming_tts, daemon=True)
+            tts_thread.start()
+            model_events = text_event_iter()
+            try:
+                for text_event in model_events:
+                    while not (playback.interrupted.is_set() or worker_failed.is_set()):
+                        if worker_done.is_set():
+                            raise RuntimeError("Streaming TTS stopped before text generation finished")
+                        try:
+                            text_events.put(text_event, timeout=0.05)
+                            break
+                        except queue.Full:
+                            continue
+                    if playback.interrupted.is_set() or worker_failed.is_set():
+                        break
+            except BaseException:
+                producer_failed.set()
+                playback.interrupted.set()
+                raise
+            finally:
+                try:
+                    model_events.close()
+                finally:
+                    producer_done.set()
+                    tts_thread.join()
+            if worker_errors:
+                raise RuntimeError("Streaming TTS synthesis failed") from worker_errors[0]
+
+            # If the engine has no processing counter, this is stream wall time
+            # and can include time waiting for model text and network audio.
             tts_proc_total = getattr(tts_engine, "last_stream_tts_proc_total", tts_timer.elapsed())
 
 

@@ -58,19 +58,20 @@ class ChunkedTTS:
         return [1], 24000
 
 
-def run_pipeline(mode, tts, *, enabled=True, pieces=None, callback=None):
+def run_pipeline(mode, tts, *, enabled=True, pieces=None, callback=None, llm=None, chunker=FakeChunker):
     run = load_pipeline()
     run.__globals__.update({
         'Timer': FakeTimer,
-        'ProsodyChunker': FakeChunker,
+        'ProsodyChunker': chunker,
         'np_audio_to_pcm16_base64': lambda audio: ('pcm', 1),
         'torch_to_np_tc': lambda wav: wav,
     })
     playback = Mock()
     playback.interrupted = threading.Event()
-    llm = types.SimpleNamespace(stream=lambda prompt: iter(
-        pieces if pieces is not None else ['First.', '😊', 'Again.', 'Again.', 'tail']
-    ))
+    if llm is None:
+        llm = types.SimpleNamespace(stream=lambda prompt: iter(
+            pieces if pieces is not None else ['First.', '😊', 'Again.', 'Again.', 'tail']
+        ))
     args = types.SimpleNamespace(
         min_words=1, tts_enabled=enabled, mode=mode, teaching_style='default',
         chunk_first=80, chunk_mid=100, chunk_later=200, chunk_wait=1,
@@ -148,8 +149,9 @@ class SpeechTextSegmentsTest(unittest.TestCase):
         self.assertIn('text_complete', [e['type'] for e in events])
 
     def test_no_audio_fails_instead_of_falsely_completing_a_spoken_turn(self):
-        with self.assertRaisesRegex(RuntimeError, 'no audio') as caught:
+        with self.assertRaisesRegex(RuntimeError, 'Streaming TTS synthesis failed') as caught:
             run_pipeline('stream-input', StreamingTTS(empty=True), pieces=['Hello.'])
+        self.assertIn('no audio', str(caught.exception.__cause__))
         self.assertIn('audio_stop', [e['type'] for e in caught.exception.events])
         self.assertNotIn('audio_done', [e['type'] for e in caught.exception.events])
 

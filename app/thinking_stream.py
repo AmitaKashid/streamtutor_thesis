@@ -14,7 +14,7 @@ class ReasoningNotObserved(ThinkingStreamError):
 
 
 class ThinkingStream:
-    # Retain enough trailing characters to detect tags split across SSE events.
+    # Retain only a suffix that could begin a marker split across SSE events.
     _tags = ("<think>", "</think>", "<|think|>", "<|channel>thought", "<channel|>", "<|channel|>analysis", "<|channel|>final")
     _hold = max(map(len, _tags)) - 1
 
@@ -63,9 +63,15 @@ class ThinkingStream:
             self.finished = True
             result, self.buffer = self.buffer, ""
             return result
-        if len(self.buffer) <= self._hold:
-            return ""
-        result, self.buffer = self.buffer[:-self._hold], self.buffer[-self._hold:]
+        retain = 0
+        for length in range(min(len(self.buffer), self._hold), 0, -1):
+            if any(tag.startswith(self.buffer[-length:]) for tag in self._tags):
+                retain = length
+                break
+        if retain:
+            result, self.buffer = self.buffer[:-retain], self.buffer[-retain:]
+        else:
+            result, self.buffer = self.buffer, ""
         return result
 
     def end(self) -> None:

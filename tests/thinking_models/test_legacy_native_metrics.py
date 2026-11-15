@@ -13,7 +13,7 @@ class Response:
     def __enter__(self): return self
     def __exit__(self, *args): pass
     def raise_for_status(self): pass
-    def iter_lines(self, decode_unicode=False): yield from self.lines
+    def iter_lines(self, chunk_size=512, decode_unicode=False): yield from self.lines
 
 
 class LegacyNativeMetricsTests(unittest.TestCase):
