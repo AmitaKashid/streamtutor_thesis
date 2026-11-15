@@ -783,7 +783,7 @@ def run_llm_tts_pipeline(
         if event_cb is None:
             return
         try:
-            if payload.get("type") == "metrics":
+            if payload.get("type") in {"metrics", "llm_chunk"}:
                 payload = {**payload, "turn_id": evaluation_turn_id}
             event_cb(payload)
         except Exception:
@@ -1174,7 +1174,6 @@ def run_llm_tts_pipeline(
     first_audio_t = None
     llm_stream_done_t = None
     
-    last_enqueued_chunk = ""
     first_chunk_sent_to_tts_t = None
     first_tts_synth_start_t = None
     tts_play_start_t = None
@@ -1241,7 +1240,7 @@ def run_llm_tts_pipeline(
     first_audio_t = None
 
     def text_event_iter():
-        nonlocal llm_first_text_t, llm_stream_done_t, chunks_count, last_enqueued_chunk
+        nonlocal llm_first_text_t, llm_stream_done_t, chunks_count
         nonlocal first_chunk_sent_to_tts_t
         nonlocal dots_stopped
         nonlocal llm_request_start_t
@@ -1287,14 +1286,10 @@ def run_llm_tts_pipeline(
                     if not clean_chunk:
                         continue
 
-                    if clean_chunk == last_enqueued_chunk:
-                        continue
-
                     chunks_count += 1
                     print(f"\n[TEXT CHUNK {chunks_count}] {clean_chunk}", flush=True)
                     emit({"type": "llm_chunk", "text": clean_chunk + " "})
 
-                    last_enqueued_chunk = clean_chunk
                     if first_chunk_sent_to_tts_t is None:
                         first_chunk_sent_to_tts_t = perf_counter()
                     yield StreamingTextChunk(text=clean_chunk + " ", flush=True, is_final=False)
@@ -1359,14 +1354,10 @@ def run_llm_tts_pipeline(
                     if not clean_chunk:
                         continue
 
-                    if clean_chunk == last_enqueued_chunk:
-                        continue
-
                     chunks_count += 1
                     print(f"\n[TEXT CHUNK {chunks_count}] {clean_chunk}", flush=True)
                     emit({"type": "llm_chunk", "text": clean_chunk + " "})
 
-                    last_enqueued_chunk = clean_chunk
                     if first_chunk_sent_to_tts_t is None:
                         first_chunk_sent_to_tts_t = perf_counter()
                     yield StreamingTextChunk(text=clean_chunk + " ", flush=True, is_final=False)
@@ -1380,11 +1371,11 @@ def run_llm_tts_pipeline(
             last = chunker.flush()
             if last:
                 clean_last = last.replace("**", "").replace("*", "").strip()
-                if clean_last and clean_last != last_enqueued_chunk:
+                if clean_last:
                     chunks_count += 1
                     print(f"\n[TEXT CHUNK {chunks_count}] {clean_last}", flush=True)
+                    emit({"type": "llm_chunk", "text": clean_last + " "})
 
-                    last_enqueued_chunk = clean_last
                     if first_chunk_sent_to_tts_t is None:
                         first_chunk_sent_to_tts_t = perf_counter()
                     yield StreamingTextChunk(text=clean_last + " ", flush=True, is_final=True)
@@ -1429,6 +1420,8 @@ def run_llm_tts_pipeline(
         nonlocal tts_play_start_t, first_tts_actual_playback_t
         if playback.interrupted.is_set():
             return
+        if len(chunk_np) == 0:
+            raise RuntimeError("TTS returned an empty audio chunk")
         if getattr(args, "browser_audio", False):
             audio_chunk_count += 1
 
@@ -1471,6 +1464,8 @@ def run_llm_tts_pipeline(
                 "data": audio_b64,
                 "sample_rate": sr,
                 "channels": channels,
+                # Present only on the first audio packet for this text segment.
+                "text": chunk_text,
             })
 
             return
@@ -1532,14 +1527,37 @@ def run_llm_tts_pipeline(
                 )
 
             tts_timer = Timer()
-            for chunk_np, sr in tts_engine.stream_text(
-                text_event_iter(),
-                voice_prompt=Path(args.voice_prompt) if args.voice_prompt else None,
-                config=None,
-            ):
-                if playback.interrupted.is_set():
-                    break
-                enqueue_audio_chunk(chunk_np, sr)
+            voice_prompt = Path(args.voice_prompt) if args.voice_prompt else None
+            if getattr(args, "browser_audio", False):
+                # The web UI's streaming engine synthesizes each flushed text
+                # chunk independently. Keep that boundary with the first PCM
+                # packet instead of guessing from audio packet duration.
+                for text_event in text_event_iter():
+                    if playback.interrupted.is_set():
+                        break
+                    text = text_event.text
+                    if not text:
+                        continue
+                    if not any(char.isalnum() for char in text):
+                        emit({"type": "audio_text", "turn_id": evaluation_turn_id, "text": text})
+                        continue
+                    first_packet = True
+                    for chunk_np, sr in tts_engine.stream_text(
+                        [text_event], voice_prompt=voice_prompt, config=None,
+                    ):
+                        if playback.interrupted.is_set():
+                            break
+                        enqueue_audio_chunk(chunk_np, sr, chunk_text=text if first_packet else None)
+                        first_packet = False
+                    if first_packet and not playback.interrupted.is_set():
+                        raise RuntimeError("TTS returned no audio for a text segment")
+            else:
+                for chunk_np, sr in tts_engine.stream_text(
+                    text_event_iter(), voice_prompt=voice_prompt, config=None,
+                ):
+                    if playback.interrupted.is_set():
+                        break
+                    enqueue_audio_chunk(chunk_np, sr)
 
             # Real TTS processing time if engine exposes it; otherwise fallback
             tts_proc_total = getattr(tts_engine, "last_stream_tts_proc_total", tts_timer.elapsed())
@@ -1566,6 +1584,8 @@ def run_llm_tts_pipeline(
                     # Keep emoji/punctuation in displayed text but do not send
                     # a non-spoken-only chunk to speech synthesis.
                     if not any(char.isalnum() for char in chunk_text):
+                        if getattr(args, "browser_audio", False):
+                            emit({"type": "audio_text", "turn_id": evaluation_turn_id, "text": chunk_text + " "})
                         text_chunk_queue.task_done()
                         continue
 
@@ -1594,7 +1614,7 @@ def run_llm_tts_pipeline(
                         # Web UI mode:
                         # Do not open Python sounddevice/AudioOutput.
                         # Send synthesized audio directly to the browser.
-                        enqueue_audio_chunk(wav_np, sr, chunk_text=chunk_text)
+                        enqueue_audio_chunk(wav_np, sr, chunk_text=chunk_text + " ")
                         text_chunk_queue.task_done()
                         continue
 

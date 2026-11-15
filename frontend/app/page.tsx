@@ -31,6 +31,7 @@ import {
 } from "recharts";
 import { AnimatePresence, motion } from "framer-motion";
 import { idleResponse, responseActivity, responseIsActive } from "./response-activity.mjs";
+import { createSynchronizedPlayback } from "./synchronized-playback.mjs";
 
 
 type Stage =
@@ -113,7 +114,7 @@ interface TutorConfig {
 
 type ServerEvent =
   | { type: "stage"; value: Stage }
-  | { type: "llm_chunk"; text: string }
+  | { type: "llm_chunk"; turn_id: string; text: string }
   | { type: "thinking_chunk"; turn_id: string; text: string }
   | { type: "thinking_preview"; turn_id: string; seconds: number }
   | { type: "llm_answer_progress"; turn_id: string; seconds: number }
@@ -128,7 +129,8 @@ type ServerEvent =
   | { type: "barge_in_accepted"; text: string }
   | { type: "tutor_turn_started"; turn_id: string; delivery_mode: "audio" | "text"; model?: string | null }
   | { type: "text_interrupted"; turn_id: string }
-  | { type: "audio_chunk"; turn_id: string; data: string; sample_rate: number; channels: number }
+  | { type: "audio_chunk"; turn_id: string; data: string; sample_rate: number; channels: number; text?: string | null }
+  | { type: "audio_text"; turn_id: string; text: string }
   | { type: "audio_done"; turn_id: string }
   | { type: "text_complete"; turn_id: string; text: string }
   | { type: "audio_stop"; turn_id: string }
@@ -342,11 +344,8 @@ function useTutorSocket(url: string) {
 
 
   const playbackContextRef = useRef<AudioContext | null>(null);
-  const playbackQueueRef = useRef<AudioBuffer[]>([]);
-  const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
-  const browserAudioPlayingRef = useRef(false);
+  const playbackRef = useRef<ReturnType<typeof createSynchronizedPlayback> | null>(null);
   const playbackTurnIdRef = useRef<string | null>(null);
-  const streamEndedRef = useRef(false);
   const receivedAudioRef = useRef(false);
   const notifiedTurnIdsRef = useRef(new Set<string>());
   const stoppedRef = useRef(false);
@@ -362,24 +361,24 @@ function useTutorSocket(url: string) {
     ws.send(JSON.stringify({ action: "browser_text_finished", turn_id: pendingTextDelivery.turnId }));
   }, [messages, pendingTextDelivery]);
 
-  // Audio is complete only after the server ends the stream and browser playback drains.
-  const markAudioDrained = () => {
-    if (streamEndedRef.current && !currentSourceRef.current && playbackQueueRef.current.length === 0) {
-      updateResponse({ type: "audio_done" });
-    }
+  const finishAssistantMessage = (turnId: string) => {
+    setMessages((prev) => prev.map((message) =>
+      message.id === `assistant_${turnId}` ? { ...message, streaming: false } : message,
+    ));
   };
 
-  // Report only when audio_done has arrived AND all browser buffers ended.
-  const maybeAcknowledgePlayback = () => {
-    const turnId = playbackTurnIdRef.current;
-    if (!turnId || stoppedRef.current || !streamEndedRef.current ||
-        !receivedAudioRef.current || currentSourceRef.current ||
-        playbackQueueRef.current.length > 0 ||
-        notifiedTurnIdsRef.current.has(turnId)) return;
-    const ws = wsRef.current;
-    if (ws?.readyState !== WebSocket.OPEN) return;
-    notifiedTurnIdsRef.current.add(turnId);
-    ws.send(JSON.stringify({ action: "browser_audio_finished", turn_id: turnId }));
+  const appendAssistantText = (turnId: string, text: string) => {
+    if (turnId !== playbackTurnIdRef.current || stoppedRef.current || !text) return;
+    const messageId = `assistant_${turnId}`;
+    setMessages((prev) => {
+      const index = prev.findIndex((message) => message.id === messageId);
+      if (index >= 0) {
+        const next = [...prev];
+        next[index] = { ...next[index], text: next[index].text + text };
+        return next;
+      }
+      return [...prev, { id: messageId, role: "assistant", text, streaming: true, timestamp: new Date().toLocaleTimeString() }];
+    });
   };
 
   const getPlaybackContext = () => {
@@ -388,6 +387,16 @@ function useTutorSocket(url: string) {
     }
 
     return playbackContextRef.current;
+  };
+
+  // Call from a user's click/key gesture so browsers can unlock audio playback.
+  const unlockPlayback = () => {
+    try {
+      const ctx = getPlaybackContext();
+      if (ctx.state === "suspended") void ctx.resume().catch(() => {});
+    } catch {
+      // The playback queue reports an error if audio is actually required.
+    }
   };
 
   const decodePcm16Base64 = (
@@ -419,60 +428,46 @@ function useTutorSocket(url: string) {
     return buffer;
   };
 
-  const playNextAudioBuffer = () => {
-    if (currentSourceRef.current || playbackQueueRef.current.length === 0) {
-      return;
-    }
-
-    const ctx = getPlaybackContext();
-
-    if (ctx.state === "suspended") {
-      void ctx.resume();
-    }
-
-    const buffer = playbackQueueRef.current.shift();
-    if (!buffer) return;
-
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(ctx.destination);
-
-    currentSourceRef.current = source;
-    browserAudioPlayingRef.current = true;
-
-    source.onended = () => {
-      currentSourceRef.current = null;
-
-      if (playbackQueueRef.current.length > 0) {
-        playNextAudioBuffer();
-      } else {
-        browserAudioPlayingRef.current = false;
-
-        markAudioDrained();
-        maybeAcknowledgePlayback();
-      }
-    };
-
-    source.start();
-  };
-
   const stopBrowserAudio = (turnId?: string) => {
     const id = turnId || playbackTurnIdRef.current;
     stoppedRef.current = true;
-    streamEndedRef.current = false;
-    playbackQueueRef.current = [];
-    const source = currentSourceRef.current;
-    // Remove before calling stop; stop() triggers onended asynchronously.
-    currentSourceRef.current = null;
-    if (source) source.onended = null;
-    try { source?.stop(); } catch { /* already stopped */ }
-    browserAudioPlayingRef.current = false;
+    playbackRef.current?.clear();
+    if (id) finishAssistantMessage(id);
     const ws = wsRef.current;
     if (deliveryModeRef.current === "audio" && id && !notifiedTurnIdsRef.current.has(id) &&
         ws?.readyState === WebSocket.OPEN) {
       notifiedTurnIdsRef.current.add(id);
       ws.send(JSON.stringify({ action: "browser_audio_interrupted", turn_id: id }));
     }
+  };
+
+  const getPlayback = () => {
+    if (!playbackRef.current) {
+      playbackRef.current = createSynchronizedPlayback({
+        getContext: getPlaybackContext,
+        onText: appendAssistantText,
+        onDrained: (turnId) => {
+          if (turnId !== playbackTurnIdRef.current || stoppedRef.current) return;
+          finishAssistantMessage(turnId);
+          updateResponse({ type: "audio_done" });
+          const ws = wsRef.current;
+          if (!receivedAudioRef.current || notifiedTurnIdsRef.current.has(turnId) || ws?.readyState !== WebSocket.OPEN) return;
+          notifiedTurnIdsRef.current.add(turnId);
+          ws.send(JSON.stringify({ action: "browser_audio_finished", turn_id: turnId }));
+        },
+        onError: (turnId) => {
+          if (turnId !== playbackTurnIdRef.current || stoppedRef.current) return;
+          stopBrowserAudio(turnId);
+          updateResponse({ type: "stop" });
+          const ws = wsRef.current;
+          if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ action: "interrupt" }));
+          else updateResponse({ type: "reset" });
+          setError("Audio playback failed. Please check your browser audio settings and try again.");
+          setStage("error");
+        },
+      });
+    }
+    return playbackRef.current;
   };
 
 
@@ -536,6 +531,7 @@ function useTutorSocket(url: string) {
               stopBrowserAudio(playbackTurnIdRef.current);
             }
             playbackTurnIdRef.current = data.turn_id;
+            getPlayback().start(data.turn_id);
             updateResponse({ type: "start", audio: data.delivery_mode === "audio" });
             const turnModel = data.model ?? null;
             // Each turn starts with a clean record, including voice and barge-in turns.
@@ -543,7 +539,6 @@ function useTutorSocket(url: string) {
             hasRecordedCurrentTurnRef.current = false;
             setMetrics({ model: turnModel, thinkingTime: null, llmAnswerTime: null });
             deliveryModeRef.current = data.delivery_mode;
-            streamEndedRef.current = false;
             receivedAudioRef.current = false;
             stoppedRef.current = responseStateRef.current.cancelling;
             return;
@@ -582,8 +577,13 @@ function useTutorSocket(url: string) {
               data.channels || 1,
             );
 
-            playbackQueueRef.current.push(buffer);
-            playNextAudioBuffer();
+            getPlayback().enqueueAudio(data.turn_id, buffer, data.text ?? "");
+            return;
+          }
+
+          if (data.type === "audio_text") {
+            if (data.turn_id !== playbackTurnIdRef.current || stoppedRef.current) return;
+            getPlayback().enqueueText(data.turn_id, data.text);
             return;
           }
 
@@ -601,9 +601,7 @@ function useTutorSocket(url: string) {
 
           if (data.type === "audio_done") {
             if (data.turn_id !== playbackTurnIdRef.current || stoppedRef.current) return;
-            streamEndedRef.current = true;
-            markAudioDrained();
-            maybeAcknowledgePlayback();
+            getPlayback().finish(data.turn_id);
             return;
           }
           if (data.type === "stage") {
@@ -721,23 +719,10 @@ function useTutorSocket(url: string) {
           }
 
           if (data.type === "llm_chunk") {
+            // With speech enabled, text is shown from the audio queue instead.
+            if (data.turn_id !== playbackTurnIdRef.current || stoppedRef.current || deliveryModeRef.current !== "text") return;
             setStage("streaming");
-            setMessages((prev) => {
-              const next = [...prev];
-              const last = next[next.length - 1];
-              if (last && last.role === "assistant" && last.streaming) {
-                next[next.length - 1] = { ...last, text: last.text + data.text };
-                return next;
-              }
-              next.push({
-                id: createId("assistant"),
-                role: "assistant",
-                text: data.text,
-                streaming: true,
-                timestamp: new Date().toLocaleTimeString(),
-              });
-              return next;
-            });
+            appendAssistantText(data.turn_id, data.text);
             return;
           }
 
@@ -746,13 +731,9 @@ function useTutorSocket(url: string) {
             if (data.turn_id && playbackTurnIdRef.current && data.turn_id !== playbackTurnIdRef.current) return;
             if (data.turn_id && !playbackTurnIdRef.current && !responseStateRef.current.cancelling) return;
             updateResponse({ type: "generation_done" });
-            setMessages((prev) =>
-              prev.map((m, idx) =>
-                idx === prev.length - 1 && m.role === "assistant"
-                  ? { ...m, streaming: false }
-                  : m,
-              ),
-            );
+            if (data.turn_id && (deliveryModeRef.current === "text" || stoppedRef.current)) {
+              finishAssistantMessage(data.turn_id);
+            }
 
             const completedMetrics: MetricState = {
               ...currentTurnMetricsRef.current,
@@ -835,6 +816,9 @@ function useTutorSocket(url: string) {
       }
       const ws = wsRef.current;
       wsRef.current = null;
+      playbackRef.current?.clear();
+      void playbackContextRef.current?.close();
+      playbackContextRef.current = null;
       try {
         ws?.close();
       } catch {
@@ -884,6 +868,7 @@ function useTutorSocket(url: string) {
     contextPending, contextNotice, clearContext,
     beginResponse,
     stopResponse,
+    unlockPlayback,
     messages,
     sources,
     metrics,
@@ -1917,6 +1902,7 @@ export default function Page() {
     contextPending, contextNotice, clearContext,
     beginResponse,
     stopResponse,
+    unlockPlayback,
     messages,
     sources,
     metrics,
@@ -2052,6 +2038,7 @@ export default function Page() {
   ) => {
     const trimmed = text.trim();
     if (!trimmed || !connected || !beginResponse()) return false;
+    if (config.ttsEnabled) unlockPlayback();
     resetTurnMetrics();
     const ok = send({ action: "text_query", text: trimmed, config: backendConfig });
     if (!ok) {
@@ -2137,6 +2124,7 @@ export default function Page() {
 
   const startMic = async () => {
     if (listening || shouldKeepListeningRef.current) return;
+    if (config.ttsEnabled) unlockPlayback();
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -2266,7 +2254,10 @@ export default function Page() {
                   contextNotice={contextNotice}
                   onClearContext={clearContext}
                   speechEnabled={config.ttsEnabled}
-                  onSpeechChange={(ttsEnabled) => setConfig((c) => ({ ...c, ttsEnabled }))}
+                  onSpeechChange={(ttsEnabled) => {
+                    if (ttsEnabled) unlockPlayback();
+                    setConfig((c) => ({ ...c, ttsEnabled }));
+                  }}
                   embedded
                 />
 
