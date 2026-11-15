@@ -9,7 +9,7 @@ class Response:
     def __enter__(self): return self
     def __exit__(self, *args): pass
     def raise_for_status(self): pass
-    def iter_lines(self, decode_unicode=False):
+    def iter_lines(self, chunk_size=512, decode_unicode=False):
         assert decode_unicode is False
         events = [
             {'choices': [{'delta': {'reasoning_content': 'hidden'}, 'finish_reason': None}]},

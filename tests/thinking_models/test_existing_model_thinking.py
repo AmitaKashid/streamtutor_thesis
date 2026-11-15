@@ -26,7 +26,8 @@ class ExistingModelThinkingTests(unittest.TestCase):
     def test_existing_thinking_models_use_reasoning_provider(self):
         build, legacy = build_llm_function()
         with patch.object(ThinkingHTTPProvider, 'healthcheck', return_value=True):
-            for key in ('gemma4_26b_q3', 'qwen3_5_9b_q6'):
+            for key in ('gemma4_26b_q3', 'qwen3_5_9b_q6',
+                        'gemma4_e4b_thinking', 'bonsai2_9b_thinking'):
                 with self.subTest(model=key):
                     args = types.SimpleNamespace(llm_backend='remote', llm_model=key,
                                                  llm_server_url='http://127.0.0.1:8007', llm_read_timeout=20)

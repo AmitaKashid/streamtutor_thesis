@@ -8,6 +8,7 @@ import time
 import requests
 
 from .base import LLMProvider, GenerationResult
+from .stream_lines import iter_stream_lines
 
 
 @dataclass
@@ -89,7 +90,7 @@ class RemoteHTTPProvider(LLMProvider):
                            timeout=(self.connect_timeout, self.read_timeout), stream=True) as resp:
             resp.raise_for_status()
             done = False
-            for line in resp.iter_lines(decode_unicode=False):
+            for line in iter_stream_lines(resp):
                 if not line:
                     continue
                 data = json.loads(line.decode('utf-8'))

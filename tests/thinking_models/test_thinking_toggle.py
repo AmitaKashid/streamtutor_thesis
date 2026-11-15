@@ -11,7 +11,7 @@ class Response:
     def __enter__(self): return self
     def __exit__(self, *args): pass
     def raise_for_status(self): pass
-    def iter_lines(self, decode_unicode=False):
+    def iter_lines(self, chunk_size=512, decode_unicode=False):
         for delta, finish in self.events:
             yield ('data: ' + json.dumps({'choices': [{'delta': delta, 'finish_reason': finish}]})).encode()
         yield b'data: [DONE]'
