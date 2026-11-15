@@ -39,6 +39,7 @@ from app.mic_stt_llm_tts import (
     effective_config_payload,
     is_valid_barge_in_text,
 )
+from app.word_alignment import align_with_whisper
 from rag.rag_retrieve import RagRetriever
 from stt.stt_backends import create_backend
 from stt.vad_segmenter import VADSegmenter, TARGET_SR
@@ -1212,6 +1213,20 @@ async def websocket_endpoint(websocket: WebSocket):
                     if request_args.tts_enabled and request_args.tts_backend == "qwen3" and hasattr(selected_tts, "cfg"):
                         selected_tts.cfg.speaker = request_args.qwen3_speaker
                         selected_tts.cfg.language = request_args.qwen3_language
+
+                    word_aligner = None
+                    if request_args.tts_enabled:
+                        whisper_backend = get_stt_backend_for_backend("faster-whisper")
+                        alignment_language = request_args.qwen3_language if request_args.tts_backend == "qwen3" else STT_LANGUAGE
+
+                        def word_aligner(text, audio, sample_rate):
+                            with stt_inference_lock:
+                                if playback.interrupted.is_set():
+                                    return []
+                                return align_with_whisper(
+                                    whisper_backend.model, text, audio, sample_rate, alignment_language,
+                                )
+
                     run_llm_tts_pipeline(
                         transcript=transcript,
                         stt_time=stt_time,
@@ -1233,6 +1248,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         request_cancel_event=request_cancel_event,
                         evaluation_turn_id=request_turn_id,
                         event_cb=emit_from_thread,
+                        word_aligner=word_aligner,
                     )
 
                 except Exception as e:

@@ -756,6 +756,7 @@ def run_llm_tts_pipeline(
     interrupted_chunks: list[str] | None = None,
     request_cancel_event: threading.Event | None = None,
     evaluation_turn_id: str | None = None,
+    word_aligner=None,
 ) -> None:
     """
     Shared post-STT pipeline for both mic mode and file mode:
@@ -1235,9 +1236,26 @@ def run_llm_tts_pipeline(
             last_answer_progress_t = now
 
     tts_proc_total = 0.0
+    word_alignment_total = 0.0
     chunks_count = 0
     audio_chunk_count = 0
     first_audio_t = None
+
+    def align_segment(text, audio, sample_rate):
+        nonlocal word_alignment_total
+        started = perf_counter()
+        try:
+            return word_aligner(text, audio, sample_rate)
+        finally:
+            word_alignment_total += perf_counter() - started
+
+    def log_text_chunk(text):
+        if getattr(args, "browser_audio", False):
+            # The browser reveals the words in time with audio. Do not print
+            # the entire answer early in the server console as a side effect.
+            print(f"\n[TTS SEGMENT {chunks_count}] chars={len(text)}", flush=True)
+        else:
+            print(f"\n[TEXT CHUNK {chunks_count}] {text}", flush=True)
 
     def text_event_iter():
         nonlocal llm_first_text_t, llm_stream_done_t, chunks_count
@@ -1287,7 +1305,7 @@ def run_llm_tts_pipeline(
                         continue
 
                     chunks_count += 1
-                    print(f"\n[TEXT CHUNK {chunks_count}] {clean_chunk}", flush=True)
+                    log_text_chunk(clean_chunk)
                     if first_chunk_sent_to_tts_t is None:
                         first_chunk_sent_to_tts_t = perf_counter()
                     yield StreamingTextChunk(text=clean_chunk + " ", flush=True, is_final=False)
@@ -1353,7 +1371,7 @@ def run_llm_tts_pipeline(
                         continue
 
                     chunks_count += 1
-                    print(f"\n[TEXT CHUNK {chunks_count}] {clean_chunk}", flush=True)
+                    log_text_chunk(clean_chunk)
                     if first_chunk_sent_to_tts_t is None:
                         first_chunk_sent_to_tts_t = perf_counter()
                     yield StreamingTextChunk(text=clean_chunk + " ", flush=True, is_final=False)
@@ -1369,7 +1387,7 @@ def run_llm_tts_pipeline(
                 clean_last = last.replace("**", "").replace("*", "").strip()
                 if clean_last:
                     chunks_count += 1
-                    print(f"\n[TEXT CHUNK {chunks_count}] {clean_last}", flush=True)
+                    log_text_chunk(clean_last)
                     if first_chunk_sent_to_tts_t is None:
                         first_chunk_sent_to_tts_t = perf_counter()
                     yield StreamingTextChunk(text=clean_last + " ", flush=True, is_final=True)
@@ -1409,7 +1427,7 @@ def run_llm_tts_pipeline(
         return _on_start, _on_end
     audio_chunk_count = 0
 
-    def enqueue_audio_chunk(chunk_np: np.ndarray, sr: int, chunk_text: str | None = None) -> None:
+    def enqueue_audio_chunk(chunk_np: np.ndarray, sr: int, chunk_text: str | None = None, word_timings=None) -> None:
         nonlocal audio_out, crossfader, playback_started, audio_prebuffer_seconds, first_audio_t, audio_chunk_count
         nonlocal tts_play_start_t, first_tts_actual_playback_t
         if playback.interrupted.is_set():
@@ -1460,6 +1478,7 @@ def run_llm_tts_pipeline(
                 "channels": channels,
                 # Present only on the first audio packet for this text segment.
                 "text": chunk_text,
+                "word_timings": word_timings,
             })
 
             return
@@ -1557,15 +1576,28 @@ def run_llm_tts_pipeline(
                                 emit({"type": "audio_text", "turn_id": evaluation_turn_id, "text": text})
                                 continue
                             first_packet = True
+                            audio_parts = []
+                            segment_sample_rate = None
                             for chunk_np, sr in tts_engine.stream_text(
                                 [text_event], voice_prompt=voice_prompt, config=None,
                             ):
                                 if playback.interrupted.is_set():
                                     break
-                                enqueue_audio_chunk(chunk_np, sr, chunk_text=text if first_packet else None)
+                                if word_aligner is not None:
+                                    if segment_sample_rate is not None and segment_sample_rate != sr:
+                                        raise RuntimeError("Sample rate changed within a speech segment")
+                                    segment_sample_rate = sr
+                                    audio_parts.append(chunk_np)
+                                else:
+                                    enqueue_audio_chunk(chunk_np, sr, chunk_text=text if first_packet else None)
                                 first_packet = False
                             if first_packet and not playback.interrupted.is_set():
                                 raise RuntimeError("TTS returned no audio for a text segment")
+                            if word_aligner is not None and audio_parts and not playback.interrupted.is_set():
+                                audio = np.concatenate(audio_parts, axis=0)
+                                timings = align_segment(text, audio, segment_sample_rate)
+                                if not playback.interrupted.is_set():
+                                    enqueue_audio_chunk(audio, segment_sample_rate, chunk_text=text, word_timings=timings)
                     else:
                         for chunk_np, sr in tts_engine.stream_text(
                             queued_text_events(), voice_prompt=voice_prompt, config=None,
@@ -1607,7 +1639,7 @@ def run_llm_tts_pipeline(
                     producer_done.set()
                     tts_thread.join()
             if worker_errors:
-                raise RuntimeError("Streaming TTS synthesis failed") from worker_errors[0]
+                raise RuntimeError(f"Streaming TTS synthesis failed: {worker_errors[0]}") from worker_errors[0]
 
             # If the engine has no processing counter, this is stream wall time
             # and can include time waiting for model text and network audio.
@@ -1665,7 +1697,9 @@ def run_llm_tts_pipeline(
                         # Web UI mode:
                         # Do not open Python sounddevice/AudioOutput.
                         # Send synthesized audio directly to the browser.
-                        enqueue_audio_chunk(wav_np, sr, chunk_text=chunk_text + " ")
+                        timings = align_segment(chunk_text, wav_np, sr) if word_aligner is not None else None
+                        if not playback.interrupted.is_set():
+                            enqueue_audio_chunk(wav_np, sr, chunk_text=chunk_text + " ", word_timings=timings)
                         text_chunk_queue.task_done()
                         continue
 
@@ -1717,7 +1751,7 @@ def run_llm_tts_pipeline(
                 text_chunk_queue.put(None)
                 tts_thread.join()
             if tts_worker_errors:
-                raise RuntimeError("TTS synthesis failed") from tts_worker_errors[0]
+                raise RuntimeError(f"TTS synthesis failed: {tts_worker_errors[0]}") from tts_worker_errors[0]
 
             if audio_out is not None and args.speak and (not playback_started) and audio_prebuffer:
                 playback.mark_tts_started()
@@ -1825,6 +1859,7 @@ def run_llm_tts_pipeline(
 
             "llmTotal": llm_time,
             "ttsTotal": tts_proc_total if tts_enabled else None,
+            "wordAlignmentTime": word_alignment_total if word_aligner is not None else None,
             "total": total_time,
             "firstAudio": ttfa,
         },

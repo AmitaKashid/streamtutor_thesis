@@ -4,7 +4,7 @@
 
 The LLM generates and transmits incremental **text deltas**. A delta is a piece of text from the server; it need not be exactly one model token. TTS is a separate stage: the currently configured engines accept a text segment per synthesis request, and Qwen3/Chatterbox Stream can return audio progressively for that request. These endpoints do not expose a bidirectional token-input TTS stream in this integration.
 
-The application sends each received answer delta as a turn-tagged `llm_chunk` immediately. With Read aloud **off**, the browser displays these deltas as they arrive. With Read aloud **on**, the browser retains the existing speech synchronization: it displays a text segment when its audio begins playing. Therefore the visible transcript is intentionally behind the LLM when audio playback is behind; this does not mean that model generation is non-streaming.
+The application sends each received answer delta as a turn-tagged `llm_chunk` immediately. With Read aloud **off**, the browser displays these deltas as they arrive. With Read aloud **on**, the browser retains the existing speech synchronization: it reveals words according to audio-derived alignment timestamps and the browser playback clock. Therefore the visible transcript is intentionally behind the LLM when audio playback is behind; this does not mean that model generation is non-streaming.
 
 ## Current model routes
 
@@ -24,7 +24,7 @@ The application sends each received answer delta as a turn-tagged `llm_chunk` im
 - The thinking parser holds only a suffix that could form a prohibited reasoning/channel marker. It still rejects split markers, unexpected reasoning, incomplete streams, and non-stop completion. Thinking and final-answer timings remain separate.
 - In streaming-input mode, the pipeline reads the LLM stream while a separate worker synthesizes queued segments. The queue is bounded to 32 text segments: if TTS falls far behind, backpressure deliberately pauses model consumption instead of allowing unbounded memory growth.
 - In streaming-input mode, a stop or LLM failure cancels queued synthesis; a TTS failure fails the turn and cancels model consumption when the provider next observes the cancellation event. In chunked-synthesis mode, an LLM failure discards pending segments, but an in-flight synthesis call may still need to finish. A blocked network read may also take until its timeout. `audio_done` and judge delivery acknowledgment are not sent as successful on failure.
-- The final answer is still accumulated for memory and evaluation. TTS segmentation remains necessary for the current synthesis APIs, and the prior browser audio/text delivery contract remains in place.
+- The final answer is still accumulated for memory and evaluation. TTS segmentation remains necessary for the current synthesis APIs, and the browser receives word-timed audio segments. The current word alignment step buffers a full speech segment and adds latency; see `speech-text-synchronization.md`.
 
 The default `ttsTotal` fallback for streaming engines can include time waiting for model text and streaming/network activity; it is not a clean GPU synthesis-only measurement. `firstAudio` in the backend is an audio-emission timestamp, not proof of audible speaker onset. Compare latency only with the same hardware, settings, workload, and clearly defined measurement boundaries.
 

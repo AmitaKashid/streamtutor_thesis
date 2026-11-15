@@ -74,6 +74,7 @@ interface MetricState {
   ttsFirstChunk?: number;
   llmTotal?: number;
   ttsTotal?: number;
+  wordAlignmentTime?: number | null;
   firstAudio?: number;
   total?: number;
   promptChars?: number;
@@ -129,7 +130,7 @@ type ServerEvent =
   | { type: "barge_in_accepted"; text: string }
   | { type: "tutor_turn_started"; turn_id: string; delivery_mode: "audio" | "text"; model?: string | null }
   | { type: "text_interrupted"; turn_id: string }
-  | { type: "audio_chunk"; turn_id: string; data: string; sample_rate: number; channels: number; text?: string | null }
+  | { type: "audio_chunk"; turn_id: string; data: string; sample_rate: number; channels: number; text?: string | null; word_timings?: Array<{text: string; start: number; end: number}> | null }
   | { type: "audio_text"; turn_id: string; text: string }
   | { type: "audio_done"; turn_id: string }
   | { type: "text_complete"; turn_id: string; text: string }
@@ -576,8 +577,21 @@ function useTutorSocket(url: string) {
               data.sample_rate,
               data.channels || 1,
             );
-
-            getPlayback().enqueueAudio(data.turn_id, buffer, data.text ?? "");
+            if (data.text && (!Array.isArray(data.word_timings) || !data.word_timings.length ||
+                data.word_timings.map((word) => word.text).join("") !== data.text ||
+                data.word_timings.some((word, index) => !Number.isFinite(word.start) || !Number.isFinite(word.end) ||
+                  word.start < 0 || word.end < word.start || word.end > buffer.duration + 0.1 ||
+                  (index > 0 && word.start < data.word_timings![index - 1].start)))) {
+              stopBrowserAudio(data.turn_id);
+              updateResponse({ type: "stop" });
+              const ws = wsRef.current;
+              if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ action: "interrupt" }));
+              else updateResponse({ type: "reset" });
+              setError("Word timing was unavailable. Check that the updated backend is running.");
+              setStage("error");
+              return;
+            }
+            getPlayback().enqueueAudio(data.turn_id, buffer, data.text ?? "", data.word_timings ?? []);
             return;
           }
 

@@ -1,11 +1,14 @@
 """Exercise the browser speech/text protocol through the real pipeline function."""
 import ast
+import contextlib
+import io
 import threading
 import time
 import types
 import unittest
 from pathlib import Path
 from unittest.mock import Mock
+import numpy as np
 
 from test_pipeline_failure import load_pipeline
 
@@ -58,13 +61,14 @@ class ChunkedTTS:
         return [1], 24000
 
 
-def run_pipeline(mode, tts, *, enabled=True, pieces=None, callback=None, llm=None, chunker=FakeChunker):
+def run_pipeline(mode, tts, *, enabled=True, pieces=None, callback=None, llm=None, chunker=FakeChunker, word_aligner=None):
     run = load_pipeline()
     run.__globals__.update({
         'Timer': FakeTimer,
         'ProsodyChunker': chunker,
         'np_audio_to_pcm16_base64': lambda audio: ('pcm', 1),
         'torch_to_np_tc': lambda wav: wav,
+        'np': np,
     })
     playback = Mock()
     playback.interrupted = threading.Event()
@@ -89,7 +93,8 @@ def run_pipeline(mode, tts, *, enabled=True, pieces=None, callback=None, llm=Non
     try:
         run(transcript='test question', stt_time=0, total_timer=FakeTimer(), llm=llm,
             tts_engine=tts, retriever=None, args=args, playback=playback,
-            pipeline_active=active, judge=None, evaluation_turn_id='turn-1', event_cb=emit)
+            pipeline_active=active, judge=None, evaluation_turn_id='turn-1', event_cb=emit,
+            word_aligner=word_aligner)
     except Exception as exc:
         exc.events = events
         raise
@@ -97,6 +102,60 @@ def run_pipeline(mode, tts, *, enabled=True, pieces=None, callback=None, llm=Non
 
 
 class SpeechTextSegmentsTest(unittest.TestCase):
+    def test_browser_console_does_not_print_answer_before_speech(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            run_pipeline('stream-input', StreamingTTS(), pieces=['Do not reveal this.'])
+        self.assertNotIn('Do not reveal this.', output.getvalue())
+
+    def test_streaming_audio_is_aligned_before_word_timed_playback(self):
+        seen = []
+        def align(text, audio, sample_rate):
+            seen.append((text, len(audio), sample_rate))
+            return [{'text': text, 'start': 0.0, 'end': .1}]
+        class AudioTTS:
+            def supports_streaming_input(self): return True
+            def stream_text(self, _events, **_kwargs):
+                yield np.zeros((2400, 1), dtype=np.float32), 24000
+                yield np.zeros((2400, 1), dtype=np.float32), 24000
+        events = run_pipeline('stream-input', AudioTTS(), pieces=['Hello.'], word_aligner=align)
+        packets = [e for e in events if e['type'] == 'audio_chunk']
+        self.assertEqual(seen, [('Hello. ', 4800, 24000)])
+        self.assertEqual(len(packets), 1)
+        self.assertEqual(packets[0]['word_timings'], [{'text': 'Hello. ', 'start': 0.0, 'end': .1}])
+
+    def test_chunked_audio_is_aligned_before_sending(self):
+        class AudioTTS:
+            def synthesize(self, **_kwargs): return np.zeros((4800, 1), dtype=np.float32), 24000
+        events = run_pipeline('stream-chunked', AudioTTS(), pieces=['Hello.'],
+                              word_aligner=lambda text, audio, sample_rate: [
+                                  {'text': text + ' ', 'start': 0.0, 'end': .1}])
+        packet = next(e for e in events if e['type'] == 'audio_chunk')
+        self.assertEqual(packet['word_timings'][0]['text'], packet['text'])
+
+    def test_interruption_during_alignment_does_not_send_audio(self):
+        holder = {}
+        def observe(event, playback):
+            holder['playback'] = playback
+        def align(text, audio, sample_rate):
+            holder['playback'].interrupted.set()
+            return [{'text': text, 'start': 0.0, 'end': 0.1}]
+        events = run_pipeline('stream-input', StreamingTTS(), pieces=['Hello.'],
+                              callback=observe, word_aligner=align)
+        self.assertNotIn('audio_chunk', [event['type'] for event in events])
+        self.assertIn('audio_stop', [event['type'] for event in events])
+        self.assertNotIn('audio_done', [event['type'] for event in events])
+
+    def test_alignment_failure_stops_speech_instead_of_showing_a_segment(self):
+        def fail(*_args):
+            raise RuntimeError('alignment failed')
+        with self.assertRaisesRegex(RuntimeError, 'alignment failed') as raised:
+            run_pipeline('stream-input', StreamingTTS(), pieces=['Hello.'], word_aligner=fail)
+        event_types = [event['type'] for event in raised.exception.events]
+        self.assertNotIn('audio_chunk', event_types)
+        self.assertIn('audio_stop', event_types)
+        self.assertNotIn('audio_done', event_types)
+
     def test_web_config_routes_each_supported_engine_to_its_synthesis_api(self):
         source = (Path(__file__).resolve().parents[2] / 'frontend_api.py').read_text(encoding='utf-8')
         tree = ast.parse(source)

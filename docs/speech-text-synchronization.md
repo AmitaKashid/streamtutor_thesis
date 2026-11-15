@@ -1,36 +1,37 @@
-# Speech and text synchronization
+# Word-level speech and text synchronization
 
-The browser reveals each tutor text segment when the corresponding audio segment starts in the Web Audio playback queue. Generating text and synthesizing audio can run ahead, but queued speech does not appear in the transcript until its turn to play. Text-only output continues to stream as the language model produces it.
+For browser speech output, the backend now aligns the known TTS input with the synthesized audio using the project's existing faster-whisper model. It sends estimated word start/end times together with the audio. The browser schedules each word against the Web Audio output clock; it does not reveal the whole segment when playback starts. With speech disabled, the browser still displays incoming LLM text deltas immediately.
 
-## Delivery contract
+## Important trade-off
 
-- Every tutor turn has a `turn_id` and a fixed `delivery_mode`, captured at turn start. Changing the speech switch applies to a subsequent turn.
-- For speech, the first `audio_chunk` of each synthesized text segment includes its `text`; later audio packets for that segment have no text. An `audio_text` event carries an ordered segment without speakable characters. The browser queues these events alongside audio and displays each segment once.
-- The server emits `audio_done` after it has sent the stream. The browser reports `browser_audio_finished` only after that event and after all received audio has finished playing. The response remains active until generation and playback have both ended.
-- Stop, barge-in, disconnect, or playback failure clears pending audio and text. Turn identifiers and queue generations prevent callbacks or packets from an earlier turn revealing text in a newer one. An interrupted turn is reported as interrupted rather than successfully delivered.
-- In text mode, turn-tagged `llm_chunk` events appear immediately, and `text_complete` still determines text-delivery acknowledgement.
+The current Qwen3 streaming server emits PCM packets without word timestamps. To obtain audio-based word estimates, the backend buffers each complete TTS segment and runs Whisper forced alignment before sending it for playback. Thus **speech no longer begins on the first Qwen audio packet**: segment synthesis and alignment add to first-audio latency. LLM generation continues concurrently, and later segments can be generated while earlier audio plays. Do not describe this as zero-latency audio streaming.
 
-The API continues to emit `llm_chunk` for compatibility with older clients, but the updated browser ignores it for audio turns. Deploy the updated backend and frontend together: an older backend does not attach the segment text required by the updated browser.
+Whisper timing is estimated from audio and the requested transcript. It is not ground truth and cannot guarantee that the TTS spoke every word correctly. Browser rendering, timer scheduling, and output-device buffering also affect perceived synchronization. The player uses `AudioContext.getOutputTimestamp()` where available and falls back to the context clock. Real-device tests, audio loopback, and manually annotated word boundaries are required before making an accuracy claim.
 
-## Timing and limitations
+## Delivery and failure semantics
 
-This is **segment-level synchronization**, not word-by-word alignment. The engines do not supply word timestamps, so a whole synthesized segment appears when its first browser audio buffer is started. Segments may contain more than one sentence, and browser scheduling, rendering, and audio-device buffering can introduce a small delay between the display update and audible sound. The change does not measure that physical delay or modify the existing latency metrics.
-
-The browser requests audio permission in a user gesture when speech is enabled. If the audio context remains suspended, spoken text is held until playback can start. A playback error interrupts the turn and reports an error rather than marking it delivered.
+- Each audio message with spoken text has an ordered `word_timings` array. Entries contain the exact display text and a start/end time in seconds relative to that audio buffer. Whitespace and punctuation are preserved.
+- The backend console reports a segment count and character length for browser speech rather than printing the answer ahead of playback. The browser transcript is the synchronized display. The native command-line audio mode has not been changed to word-level synchronization.
+- The web backend loads faster-whisper if needed, reuses that instance, and uses the session's STT inference lock. This adds inference work and may contend with microphone transcription and other GPU workloads. The lock does not coordinate other browser sessions that share the model. `wordAlignmentTime` in the final turn metrics includes preprocessing, waiting for the lock and inference. `firstAudio` is a backend emission timestamp, not an audible-device timestamp. The `ttsTotal` fallback for streaming engines may include alignment and waiting.
+- If timing is missing, invalid, out of order, or does not match the requested text, the turn fails rather than silently presenting an invented word schedule or reverting to an entire segment. Non-spoken text is queued in order.
+- Interruption clears queued audio and word timers. An already-running GPU inference or blocked network call may take time to return; browser playback should stop without waiting for it. Successful audio delivery is acknowledged only after the stream ends, audio output drains, and scheduled words have been revealed.
+- Backend and frontend must be updated together; the browser rejects spoken text without word timings. Text-only mode and turn identity remain unchanged.
 
 ## Validation
 
-Run the deterministic checks from the repository root:
+From the repository root:
 
 ```bash
 python -m unittest discover -s tests/thinking_models -v
 node --test frontend/tests/*.test.mjs
-cd frontend && npm run build
 ```
 
-Also test with the actual browser, selected TTS service, and audio device:
+The automated tests use synthetic audio/timestamps and mocked model calls; they do not measure alignment accuracy, real browser/device latency, or interference with live STT/TTS models.
 
-1. Enable **Read aloud** and ask a question long enough to produce several segments. Confirm that the next segment is not visible while an earlier one is playing and that the final segment appears.
-2. Stop once during a segment and once while later segments are queued. Confirm playback stops, no queued text appears afterward, and the next question starts a clean turn.
-3. Turn **Read aloud** off and verify text appears incrementally without waiting for audio. Turn it back on for another question.
-4. Repeat with the speech backends used in the experiment, including a streaming backend if applicable. Check browser audio permissions and repeat after reconnecting. Real device and end-to-end latency must be measured separately from the deterministic tests.
+For acceptance, use the real TTS and audio device:
+
+1. Ask a short question with speech on. Confirm individual words appear with speech, including the first and final words and punctuation.
+2. Test longer answers, pauses, numbers, abbreviations, repeated words, accented names, and a question with no punctuation. Check for missing, repeated, early, or delayed words.
+3. Stop during a segment and ask a new question; verify no old words or audio appear, and test voice barge-in as well as the stop button.
+4. Test speech off, switch voices/backends, and test a suspended browser audio context and a slow network. Compare perceived first-audio latency with the segment-level baseline on the same hardware, prompts, and model configuration.
+5. For thesis reporting, record multiple runs and use reference annotations or audio loopback to measure word-onset error (median and tail), first-audio latency, failures, hardware, workload, and synchronization clock. Do not interpret alignment-model timestamps as ground truth.

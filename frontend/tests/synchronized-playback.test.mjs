@@ -13,6 +13,7 @@ function fixture({ suspended = false, failStart = false } = {}) {
   });
   const context = {
     state: suspended ? 'suspended' : 'running',
+    currentTime: 0,
     destination: {},
     resume: () => resumePromise,
     createBufferSource() {
@@ -134,5 +135,110 @@ test('a text-only segment waits behind audio and precedes completion', () => {
   playback.enqueueText('t1', '😊 ');
   playback.finish('t1');
   sources[0].end();
+  assert.deepEqual(events.slice(-2), [['text', 't1', '😊 '], ['drained', 't1']]);
+});
+
+test('reveals each aligned word according to the audio clock', async () => {
+  const { playback, context, events, sources } = fixture();
+  playback.start('t1');
+  playback.enqueueAudio('t1', buffer('a'), 'Hello world! ', [
+    { text: 'Hello', start: .2, end: .4 },
+    { text: ' world! ', start: .7, end: 1.1 },
+  ]);
+  playback.finish('t1');
+  assert.equal(events.filter((event) => event[0] === 'text').length, 0);
+  context.currentTime = .25;
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.deepEqual(events.filter((event) => event[0] === 'text'), [['text', 't1', 'Hello']]);
+  context.currentTime = .75;
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.deepEqual(events.filter((event) => event[0] === 'text'), [
+    ['text', 't1', 'Hello'], ['text', 't1', ' world! '],
+  ]);
+  sources[0].end();
+  assert.deepEqual(events.at(-1), ['drained', 't1']);
+});
+
+test('stop prevents scheduled words from a previous turn from appearing', async () => {
+  const { playback, context, events } = fixture();
+  playback.start('old');
+  playback.enqueueAudio('old', buffer('a'), 'Hello world', [
+    { text: 'Hello', start: 0, end: .2 },
+    { text: ' world', start: .7, end: .9 },
+  ]);
+  playback.clear();
+  context.currentTime = 2;
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.deepEqual(events.filter((event) => event[0] === 'text'), [['text', 'old', 'Hello']]);
+  assert.equal(events.some((event) => event[0] === 'drained'), false);
+});
+
+test('prefers the output-device audio clock when available', async () => {
+  const { playback, context, events, sources } = fixture();
+  let outputTime = 0;
+  context.getOutputTimestamp = () => ({ contextTime: outputTime });
+  playback.start('t1');
+  playback.enqueueAudio('t1', buffer('a'), 'Hello', [{ text: 'Hello', start: .2, end: .4 }]);
+  context.currentTime = 1;
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(events.filter((event) => event[0] === 'text').length, 0);
+  outputTime = .3;
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.deepEqual(events.filter((event) => event[0] === 'text'), [['text', 't1', 'Hello']]);
+  sources[0].end();
+});
+
+test('keeps the last word pending after rendering until the output clock reaches it', async () => {
+  const { playback, context, events, sources } = fixture();
+  let outputTime = 0;
+  context.getOutputTimestamp = () => ({ contextTime: outputTime });
+  playback.start('t1');
+  playback.enqueueAudio('t1', buffer('a'), 'Hello', [{ text: 'Hello', start: .5, end: .9 }]);
+  playback.finish('t1');
+  context.currentTime = 1;
+  sources[0].end();
+  assert.equal(events.some((event) => event[0] === 'text' || event[0] === 'drained'), false);
+  outputTime = .6;
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.deepEqual(events.slice(-2), [['text', 't1', 'Hello'], ['drained', 't1']]);
+});
+
+test('reports completion only when the output clock reaches the end of audio', async () => {
+  const { playback, context, events, sources } = fixture();
+  let outputTime = 0;
+  context.getOutputTimestamp = () => ({ contextTime: outputTime });
+  playback.start('t1');
+  playback.enqueueAudio('t1', { name: 'a', duration: 1 }, 'Hello', [
+    { text: 'Hello', start: .2, end: .8 },
+  ]);
+  playback.finish('t1');
+  context.currentTime = 1;
+  outputTime = .5;
+  sources[0].end();
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.deepEqual(events.filter((event) => event[0] === 'text'), [['text', 't1', 'Hello']]);
+  assert.equal(events.some((event) => event[0] === 'drained'), false);
+  outputTime = 1;
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.deepEqual(events.at(-1), ['drained', 't1']);
+});
+
+test('keeps non-spoken text behind the previous output until it is heard', async () => {
+  const { playback, context, events, sources } = fixture();
+  let outputTime = 0;
+  context.getOutputTimestamp = () => ({ contextTime: outputTime });
+  playback.start('t1');
+  playback.enqueueAudio('t1', { name: 'a', duration: 1 }, 'Hello', [
+    { text: 'Hello', start: .2, end: .8 },
+  ]);
+  playback.enqueueText('t1', '😊 ');
+  playback.finish('t1');
+  outputTime = .5;
+  context.currentTime = 1;
+  sources[0].end();
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.deepEqual(events.filter((event) => event[0] === 'text'), [['text', 't1', 'Hello']]);
+  outputTime = 1;
+  await new Promise((resolve) => setTimeout(resolve, 40));
   assert.deepEqual(events.slice(-2), [['text', 't1', '😊 '], ['drained', 't1']]);
 });
