@@ -6,6 +6,7 @@ import requests
 from app.thinking_stream import ThinkingStream, ThinkingStreamError, ReasoningNotObserved
 from app.inference_metrics import server_timing_metrics
 from .base import GenerationResult
+from .stream_lines import iter_stream_lines
 
 
 class ThinkingHTTPProvider:
@@ -60,7 +61,7 @@ class ThinkingHTTPProvider:
             response.raise_for_status()
             # SSE is UTF-8. Decode bytes explicitly; requests otherwise may
             # fall back to ISO-8859-1 when the server omits a charset.
-            for raw_line in response.iter_lines(decode_unicode=False):
+            for raw_line in iter_stream_lines(response):
                 if cancel_event is not None and cancel_event.is_set():
                     return
                 try:

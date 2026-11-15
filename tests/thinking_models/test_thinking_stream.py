@@ -26,6 +26,24 @@ class ThinkingStreamTests(unittest.TestCase):
         with self.assertRaises(ThinkingStreamError):
             s.feed(event({"content": "nk>"}))
 
+    def test_safe_answer_deltas_are_released_immediately(self):
+        s = ThinkingStream(require_reasoning=False)
+        self.assertEqual(s.feed(event({"content": "Hello"})), "Hello")
+        self.assertEqual(s.feed(event({"content": " <"})), " ")
+        self.assertEqual(s.feed(event({"content": "3"})), "<3")
+        self.assertEqual(s.feed(event(finish="stop")), "")
+        s.end()
+
+    def test_all_reasoning_markers_are_rejected_at_every_split(self):
+        for marker in ThinkingStream._tags:
+            for split in range(1, len(marker)):
+                with self.subTest(marker=marker, split=split):
+                    s = ThinkingStream(require_reasoning=False)
+                    shown = s.feed(event({"content": marker[:split]}))
+                    self.assertEqual(shown, "")
+                    with self.assertRaises(ThinkingStreamError):
+                        s.feed(event({"content": marker[split:]}))
+
     def test_truncation_and_missing_completion_are_rejected(self):
         s = ThinkingStream()
         s.feed(event({"reasoning_content": "reasoning"}))

@@ -19,7 +19,7 @@ class Response:
     def __exit__(self, *args): pass
     def raise_for_status(self): pass
 
-    def iter_lines(self, decode_unicode=False):
+    def iter_lines(self, chunk_size=512, decode_unicode=False):
         yield b'data: {"choices":[{"delta":{"content":"A valid answer."},"finish_reason":null}]}'
         event = {'choices': [{'delta': {}, 'finish_reason': self.finish}]}
         if self.timings is not None:

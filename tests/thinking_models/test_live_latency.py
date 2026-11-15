@@ -11,7 +11,7 @@ class Response:
     def __enter__(self): return self
     def __exit__(self, *args): pass
     def raise_for_status(self): pass
-    def iter_lines(self, decode_unicode=False):
+    def iter_lines(self, chunk_size=512, decode_unicode=False):
         for delta in ({'reasoning_content':'thought'}, {'content':'A sufficiently long final answer to stream.'}):
             yield ('data: ' + json.dumps({'choices':[{'delta':delta}]})).encode()
         if self.done:
@@ -42,7 +42,7 @@ class LiveTimingTests(unittest.TestCase):
     def test_thinking_disabled_never_emits_preview(self):
         previews=[]
         class Direct(Response):
-            def iter_lines(self, decode_unicode=False):
+            def iter_lines(self, chunk_size=512, decode_unicode=False):
                 yield b'data: {"choices":[{"delta":{"content":"answer"}}]}'
                 yield b'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}'
                 yield b'data: [DONE]'

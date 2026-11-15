@@ -10,7 +10,7 @@ class CancelResponse:
     def __enter__(self): return self
     def __exit__(self, *args): self.closed = True
     def raise_for_status(self): pass
-    def iter_lines(self, decode_unicode=False):
+    def iter_lines(self, chunk_size=512, decode_unicode=False):
         yield b'data: {"choices":[{"delta":{"reasoning_content":"hidden"}}]}'
         self.cancel.set()
         yield b'data: {"choices":[{"delta":{"content":"must not be sent"}}]}'
