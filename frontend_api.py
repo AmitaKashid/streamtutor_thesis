@@ -477,7 +477,7 @@ def build_pipeline_args(config: dict | None = None):
         chunk_later = 220
         chunk_wait = 0.30
     else:
-        pipeline_mode = "stream-chunked"
+        pipeline_mode = "stream-input" if tts_backend == "chatterbox_stream" else "stream-chunked"
         chunk_first = 200
         chunk_mid = 250
         chunk_later = 300
