@@ -20,8 +20,9 @@ function fixture({ suspended = false, failStart = false } = {}) {
       const source = {
         buffer: null, onended: null, stopped: false,
         connect() {},
-        start() {
+        start(at) {
           if (failStart) throw new Error('start failed');
+          this.startedAt = at;
           events.push(['start', this.buffer]);
         },
         stop() { this.stopped = true; },
@@ -36,6 +37,8 @@ function fixture({ suspended = false, failStart = false } = {}) {
     onText: (id, text) => events.push(['text', id, text]),
     onDrained: (id) => events.push(['drained', id]),
     onError: (id, error) => events.push(['error', id, error.message]),
+    onUnderrun: (id, seconds) => events.push(['underrun', id, seconds]),
+    onPauseError: (id, error) => events.push(['pause-error', id, error.message]),
   });
   return { playback, context, events, sources, resolveResume, rejectResume };
 }
@@ -241,4 +244,139 @@ test('keeps non-spoken text behind the previous output until it is heard', async
   outputTime = 1;
   await new Promise((resolve) => setTimeout(resolve, 40));
   assert.deepEqual(events.slice(-2), [['text', 't1', '😊 '], ['drained', 't1']]);
+});
+
+test('schedules a ready next timed segment without waiting for an end callback', async () => {
+  const { playback, context, events, sources } = fixture();
+  playback.start('t1');
+  playback.enqueueAudio('t1', { name: 'one', duration: 1 }, 'Hello ', [
+    { text: 'Hello ', start: 0, end: .8 },
+  ]);
+  playback.enqueueAudio('t1', { name: 'two', duration: 1 }, 'world', [
+    { text: 'world', start: .1, end: .7 },
+  ]);
+  assert.equal(sources.length, 2);
+  assert.equal(sources[1].startedAt, 1);
+  assert.deepEqual(events.filter((event) => event[0] === 'text'), [['text', 't1', 'Hello ']]);
+  context.currentTime = 1.2;
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.deepEqual(events.filter((event) => event[0] === 'text'), [['text', 't1', 'Hello '], ['text', 't1', 'world']]);
+  playback.clear();
+  assert.equal(sources[0].stopped, true);
+  assert.equal(sources[1].stopped, true);
+});
+
+test('records a late segment as an underrun rather than fabricating continuous audio', () => {
+  const { playback, context, events, sources } = fixture();
+  playback.start('t1');
+  playback.enqueueAudio('t1', { name: 'one', duration: 1 }, 'First', [
+    { text: 'First', start: 0, end: .8 },
+  ]);
+  context.currentTime = 1;
+  sources[0].end();
+  context.currentTime = 1.5;
+  playback.enqueueAudio('t1', { name: 'two', duration: 1 }, 'Second', [
+    { text: 'Second', start: 0, end: .8 },
+  ]);
+  assert.deepEqual(events.filter((event) => event[0] === 'underrun'), [['underrun', 't1', .5]]);
+  playback.clear();
+});
+
+test('rejected interruption resumes the same queued answer and word timing', async () => {
+  const { playback, context, events, sources } = fixture();
+  context.suspend = () => { context.state = 'suspended'; return Promise.resolve(); };
+  context.resume = () => { context.state = 'running'; return Promise.resolve(); };
+  playback.start('t1');
+  playback.enqueueAudio('t1', { duration: 1 }, 'First ', [{ text: 'First ', start: 0, end: .8 }]);
+  playback.pause('t1');
+  await Promise.resolve();
+  playback.enqueueAudio('t1', { duration: 1 }, 'second', [{ text: 'second', start: .1, end: .8 }]);
+  playback.finish('t1');
+  assert.equal(context.state, 'suspended');
+  assert.equal(sources.length, 1);
+  assert.equal(sources[0].stopped, false);
+  assert.equal(events.some((event) => event[0] === 'drained'), false);
+  playback.resume('t1');
+  await Promise.resolve();
+  assert.equal(context.state, 'running');
+  assert.equal(sources.length, 2);
+  assert.equal(sources[1].startedAt, 1);
+  context.currentTime = 1.2;
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.deepEqual(events.filter((event) => event[0] === 'text'), [['text', 't1', 'First '], ['text', 't1', 'second']]);
+  playback.clear();
+});
+
+test('resume requested while suspend is pending is not lost', async () => {
+  const { playback, context, sources } = fixture();
+  let completeSuspend;
+  context.suspend = () => new Promise((resolve) => {
+    completeSuspend = () => { context.state = 'suspended'; resolve(); };
+  });
+  context.resume = () => { context.state = 'running'; return Promise.resolve(); };
+  playback.start('t1');
+  playback.enqueueAudio('t1', { duration: 1 }, 'Hello', [{ text: 'Hello', start: 0, end: .8 }]);
+  playback.pause('t1');
+  playback.resume('t1');
+  completeSuspend();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(context.state, 'running');
+  assert.equal(sources[0].stopped, false);
+  playback.clear();
+});
+
+test('a late suspend after cancellation cannot strand a new turn', async () => {
+  const { playback, context, sources } = fixture();
+  let completeSuspend;
+  context.suspend = () => new Promise((resolve) => {
+    completeSuspend = () => { context.state = 'suspended'; resolve(); };
+  });
+  context.resume = () => { context.state = 'running'; return Promise.resolve(); };
+  playback.start('old');
+  playback.enqueueAudio('old', { duration: 1 }, 'Old', [{ text: 'Old', start: 0, end: .8 }]);
+  playback.pause('old');
+  playback.clear();
+  playback.start('new');
+  playback.enqueueAudio('new', { duration: 1 }, 'New', [{ text: 'New', start: 0, end: .8 }]);
+  completeSuspend();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(context.state, 'running');
+  assert.equal(sources[0].stopped, true);
+  assert.equal(sources[1].stopped, false);
+  playback.clear();
+});
+
+test('resume advances the output clock after the last source ended during pause', async () => {
+  const { playback, context, events, sources } = fixture();
+  let outputTime = 0;
+  context.getOutputTimestamp = () => ({ contextTime: outputTime });
+  context.suspend = () => { context.state = 'suspended'; return Promise.resolve(); };
+  context.resume = () => { context.state = 'running'; return Promise.resolve(); };
+  playback.start('t1');
+  playback.enqueueAudio('t1', { duration: 1 }, 'Hello', [{ text: 'Hello', start: 0, end: .8 }]);
+  playback.finish('t1');
+  playback.pause('t1');
+  sources[0].end();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(events.some((event) => event[0] === 'drained'), false);
+  playback.resume('t1');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(context.state, 'running');
+  outputTime = 1;
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(events.filter((event) => event[0] === 'drained').length, 1);
+  playback.clear();
+});
+
+test('failed pause does not discard or falsely finish the answer', async () => {
+  const { playback, context, events, sources } = fixture();
+  context.suspend = () => Promise.reject(new Error('suspend failed'));
+  playback.start('t1');
+  playback.enqueueAudio('t1', buffer('a'), 'Answer.');
+  playback.pause('t1');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(sources[0].stopped, false);
+  assert.deepEqual(events.at(-1), ['pause-error', 't1', 'suspend failed']);
+  assert.equal(events.some((event) => event[0] === 'drained'), false);
+  playback.clear();
 });

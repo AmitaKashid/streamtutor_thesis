@@ -63,6 +63,7 @@ from tts.config import (
 # ---- Streaming helpers ----
 #from llm.llmcli.common.text_chunker import TextChunker, ChunkerConfig
 from llm.llmcli.common.prosody_chunker import ProsodyChunker, ProsodyChunkerConfig
+from llm.llmcli.common.speech_text import speech_text
 from llm.llmcli.common.audio_smoother import AudioCrossfader, CrossfadeConfig
 from llm.llmcli.common.audio_output import AudioOutput, AudioOutputConfig
 
@@ -1204,6 +1205,8 @@ def run_llm_tts_pipeline(
     later_target_chars=args.chunk_mid,
     min_sentence_chars=45,
     min_comma_chars=60,
+    first_min_sentence_chars=28 if getattr(args, "browser_audio", False) else None,
+    first_min_comma_chars=50 if getattr(args, "browser_audio", False) else None,
     max_chars=args.chunk_later,
     max_wait_s=args.chunk_wait,
     )
@@ -1215,10 +1218,15 @@ def run_llm_tts_pipeline(
     llm_first_text_t = None
     llm_stream_done_t = None
     thinking_time_s = None
+    thinking_gap_s = None
 
     def record_thinking_time(seconds):
         nonlocal thinking_time_s
         thinking_time_s = seconds
+
+    def record_thinking_gap(seconds):
+        nonlocal thinking_gap_s
+        thinking_gap_s = seconds
 
     def preview_thinking_time(seconds):
         if not playback.interrupted.is_set():
@@ -1245,7 +1253,17 @@ def run_llm_tts_pipeline(
         nonlocal word_alignment_total
         started = perf_counter()
         try:
-            return word_aligner(text, audio, sample_rate)
+            try:
+                return word_aligner(text, audio, sample_rate)
+            except Exception as exc:
+                from app.word_alignment import WordAlignmentError
+                if not isinstance(exc, WordAlignmentError):
+                    raise
+                # Keep the answer audible and complete. Do not invent word
+                # timestamps; the browser shows this text after the audio.
+                print(f"[WORD ALIGNMENT WARNING] {type(exc).__name__}: {exc}", flush=True)
+                emit({"type": "alignment_warning", "turn_id": evaluation_turn_id})
+                return None
         finally:
             word_alignment_total += perf_counter() - started
 
@@ -1300,12 +1318,14 @@ def run_llm_tts_pipeline(
                     if not chunk_text:
                         continue
 
-                    clean_chunk = chunk_text.replace("**", "").replace("*", "").strip()
+                    clean_chunk = speech_text(chunk_text)
                     if not clean_chunk:
                         continue
 
                     chunks_count += 1
+
                     log_text_chunk(clean_chunk)
+
                     if first_chunk_sent_to_tts_t is None:
                         first_chunk_sent_to_tts_t = perf_counter()
                     yield StreamingTextChunk(text=clean_chunk + " ", flush=True, is_final=False)
@@ -1325,6 +1345,7 @@ def run_llm_tts_pipeline(
                     reasoning_budget_tokens=getattr(args, "reasoning_budget_tokens", None),
                     on_reasoning=lambda text: emit({"type": "thinking_chunk", "turn_id": evaluation_turn_id, "text": text}),
                     on_thinking_time=record_thinking_time,
+                    on_thinking_gap=record_thinking_gap,
                     on_thinking_preview=preview_thinking_time,
                     on_server_metrics=lambda metrics: emit({"type": "metrics", "data": metrics}),
                 )
@@ -1366,12 +1387,14 @@ def run_llm_tts_pipeline(
                     if not chunk_text:
                         continue
 
-                    clean_chunk = chunk_text.replace("**", "").replace("*", "").strip()
+                    clean_chunk = speech_text(chunk_text)
                     if not clean_chunk:
                         continue
 
                     chunks_count += 1
+
                     log_text_chunk(clean_chunk)
+
                     if first_chunk_sent_to_tts_t is None:
                         first_chunk_sent_to_tts_t = perf_counter()
                     yield StreamingTextChunk(text=clean_chunk + " ", flush=True, is_final=False)
@@ -1384,7 +1407,11 @@ def run_llm_tts_pipeline(
         if not playback.interrupted.is_set():
             last = chunker.flush()
             if last:
+
                 clean_last = last.replace("**", "").replace("*", "").strip()
+
+                clean_last = speech_text(last)
+
                 if clean_last:
                     chunks_count += 1
                     log_text_chunk(clean_last)
@@ -1549,6 +1576,44 @@ def run_llm_tts_pipeline(
             worker_done = threading.Event()
             worker_failed = threading.Event()
             worker_errors = []
+            synthesis_done = threading.Event()
+            aligned_audio_queue = queue.Queue(maxsize=2)
+            align_in_parallel = getattr(args, "browser_audio", False) and word_aligner is not None
+
+            def fail_speech_worker(exc):
+                worker_errors.append(exc)
+                worker_failed.set()
+                playback.interrupted.set()
+
+            def queue_for_alignment(item):
+                while not (playback.interrupted.is_set() or worker_failed.is_set() or producer_failed.is_set()):
+                    try:
+                        aligned_audio_queue.put(item, timeout=0.05)
+                        return
+                    except queue.Full:
+                        continue
+
+            def run_alignment_worker():
+                try:
+                    while not (playback.interrupted.is_set() or producer_failed.is_set()):
+                        try:
+                            text, audio, sr = aligned_audio_queue.get(timeout=0.05)
+                        except queue.Empty:
+                            if synthesis_done.is_set() and aligned_audio_queue.empty():
+                                return
+                            continue
+                        if audio is None:
+                            emit({"type": "audio_text", "turn_id": evaluation_turn_id, "text": text})
+                            continue
+                        timings = align_segment(text, audio, sr)
+                        if not playback.interrupted.is_set():
+                            if timings is None:
+                                enqueue_audio_chunk(audio, sr)
+                                emit({"type": "audio_text", "turn_id": evaluation_turn_id, "text": text})
+                            else:
+                                enqueue_audio_chunk(audio, sr, chunk_text=text, word_timings=timings)
+                except Exception as exc:
+                    fail_speech_worker(exc)
 
             def queued_text_events():
                 while not (playback.interrupted.is_set() or producer_failed.is_set()):
@@ -1573,7 +1638,10 @@ def run_llm_tts_pipeline(
                             if not text:
                                 continue
                             if not any(char.isalnum() for char in text):
-                                emit({"type": "audio_text", "turn_id": evaluation_turn_id, "text": text})
+                                if align_in_parallel:
+                                    queue_for_alignment((text, None, None))
+                                else:
+                                    emit({"type": "audio_text", "turn_id": evaluation_turn_id, "text": text})
                                 continue
                             first_packet = True
                             audio_parts = []
@@ -1595,9 +1663,7 @@ def run_llm_tts_pipeline(
                                 raise RuntimeError("TTS returned no audio for a text segment")
                             if word_aligner is not None and audio_parts and not playback.interrupted.is_set():
                                 audio = np.concatenate(audio_parts, axis=0)
-                                timings = align_segment(text, audio, segment_sample_rate)
-                                if not playback.interrupted.is_set():
-                                    enqueue_audio_chunk(audio, segment_sample_rate, chunk_text=text, word_timings=timings)
+                                queue_for_alignment((text, audio, segment_sample_rate))
                     else:
                         for chunk_np, sr in tts_engine.stream_text(
                             queued_text_events(), voice_prompt=voice_prompt, config=None,
@@ -1606,13 +1672,15 @@ def run_llm_tts_pipeline(
                                 break
                             enqueue_audio_chunk(chunk_np, sr)
                 except Exception as exc:
-                    worker_errors.append(exc)
-                    worker_failed.set()
-                    # Cancel model iteration as soon as it next checks the flag.
-                    playback.interrupted.set()
+                    fail_speech_worker(exc)
                 finally:
+                    synthesis_done.set()
                     worker_done.set()
 
+            alignment_thread = None
+            if align_in_parallel:
+                alignment_thread = threading.Thread(target=run_alignment_worker, daemon=True)
+                alignment_thread.start()
             tts_thread = threading.Thread(target=run_streaming_tts, daemon=True)
             tts_thread.start()
             model_events = text_event_iter()
@@ -1638,6 +1706,8 @@ def run_llm_tts_pipeline(
                 finally:
                     producer_done.set()
                     tts_thread.join()
+                    if alignment_thread is not None:
+                        alignment_thread.join()
             if worker_errors:
                 raise RuntimeError(f"Streaming TTS synthesis failed: {worker_errors[0]}") from worker_errors[0]
 
@@ -1699,7 +1769,11 @@ def run_llm_tts_pipeline(
                         # Send synthesized audio directly to the browser.
                         timings = align_segment(chunk_text, wav_np, sr) if word_aligner is not None else None
                         if not playback.interrupted.is_set():
-                            enqueue_audio_chunk(wav_np, sr, chunk_text=chunk_text + " ", word_timings=timings)
+                            if word_aligner is not None and timings is None:
+                                enqueue_audio_chunk(wav_np, sr)
+                                emit({"type": "audio_text", "turn_id": evaluation_turn_id, "text": chunk_text + " "})
+                            else:
+                                enqueue_audio_chunk(wav_np, sr, chunk_text=chunk_text + " ", word_timings=timings)
                         text_chunk_queue.task_done()
                         continue
 
@@ -1851,6 +1925,7 @@ def run_llm_tts_pipeline(
             "stt": stt_time,
             "ttft": llm_ttft_real,
             "thinkingTime": thinking_time_s if response_status == "completed" else None,
+            "thinkingToAnswerGap": thinking_gap_s if response_status == "completed" else None,
             "reasoningBudgetTokens": getattr(args, "reasoning_budget_tokens", None) if getattr(args, "thinking_enabled", True) else None,
             "llmAnswerTime": (llm_stream_done_t - llm_first_text_t
                               if response_status == "completed" and llm_stream_done_t is not None

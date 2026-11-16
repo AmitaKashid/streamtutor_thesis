@@ -11,6 +11,8 @@ class ProsodyChunkerConfig:
     later_target_chars: int = 180
     min_sentence_chars: int = 45
     min_comma_chars: int = 60
+    first_min_sentence_chars: int | None = None
+    first_min_comma_chars: int | None = None
     max_chars: int = 260
     max_wait_s: float = 0.5
 
@@ -39,10 +41,16 @@ class ProsodyChunker:
         buf_len = len(self._buf.strip())
 
         if ch in self.STRONG_PUNCT:
-            return buf_len >= self.cfg.min_sentence_chars
+            threshold = self.cfg.min_sentence_chars
+            if not self._started and self.cfg.first_min_sentence_chars is not None:
+                threshold = self.cfg.first_min_sentence_chars
+            return buf_len >= threshold
 
         if ch in self.SOFT_PUNCT:
-            return buf_len >= self.cfg.min_comma_chars
+            threshold = self.cfg.min_comma_chars
+            if not self._started and self.cfg.first_min_comma_chars is not None:
+                threshold = self.cfg.first_min_comma_chars
+            return buf_len >= threshold
 
         return False
 

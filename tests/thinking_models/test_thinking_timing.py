@@ -26,27 +26,31 @@ class Response:
 class ThinkingTimingTests(unittest.TestCase):
     def test_timing_is_first_reasoning_to_first_answer(self):
         response = Response([{'reasoning_content': 'first'}, {'reasoning_content': 'more'}, {'content': 'Final answer'}])
-        samples = []
-        # Request starts at 100; first reasoning at 102; first answer at 109.
+        samples, gaps = [], []
+        # Request at 100; reasoning at 102 and 105; first answer at 109.
         with patch('llm.llmcli.providers.thinking_http.requests.post', return_value=response), \
-             patch('llm.llmcli.providers.thinking_http.time.perf_counter', side_effect=[100, 102, 109, 110]):
-            answer = ''.join(ThinkingHTTPProvider('http://test').stream_with_cancel('q', None, on_thinking_time=samples.append))
+             patch('llm.llmcli.providers.thinking_http.time.perf_counter', side_effect=[100, 102, 105, 109, 110]):
+            answer = ''.join(ThinkingHTTPProvider('http://test').stream_with_cancel(
+                'q', None, on_thinking_time=samples.append, on_thinking_gap=gaps.append))
         self.assertEqual(answer, 'Final answer')
         self.assertEqual(samples, [7])
+        self.assertEqual(gaps, [4])
 
     def test_disabled_thinking_has_no_timing(self):
-        samples = []
+        samples, gaps = [], []
         with patch('llm.llmcli.providers.thinking_http.requests.post', return_value=Response([{'content': 'answer'}])):
-            list(ThinkingHTTPProvider('http://test').stream_with_cancel('q', None, thinking_enabled=False, on_thinking_time=samples.append))
+            list(ThinkingHTTPProvider('http://test').stream_with_cancel('q', None, thinking_enabled=False, on_thinking_time=samples.append, on_thinking_gap=gaps.append))
         self.assertEqual(samples, [])
+        self.assertEqual(gaps, [])
 
     def test_incomplete_stream_has_no_timing(self):
-        samples = []
+        samples, gaps = [], []
         response = Response([{'reasoning_content': 'reasoning'}, {'content': 'answer'}], done=False)
         with patch('llm.llmcli.providers.thinking_http.requests.post', return_value=response):
             with self.assertRaises(ThinkingStreamError):
-                list(ThinkingHTTPProvider('http://test').stream_with_cancel('q', None, on_thinking_time=samples.append))
+                list(ThinkingHTTPProvider('http://test').stream_with_cancel('q', None, on_thinking_time=samples.append, on_thinking_gap=gaps.append))
         self.assertEqual(samples, [])
+        self.assertEqual(gaps, [])
 
     def test_cancelled_stream_has_no_timing(self):
         samples, cancel = [], threading.Event()
@@ -65,6 +69,7 @@ class PipelineThinkingTimingTests(unittest.TestCase):
             def stream_with_cancel(self, prompt, cancel_event, **kwargs):
                 kwargs['on_reasoning']('reasoning')
                 kwargs['on_thinking_time'](2.5)
+                kwargs['on_thinking_gap'](.4)
                 yield 'A complete answer.'
         playback = Mock(); playback.interrupted = threading.Event()
         args = types.SimpleNamespace(min_words=1, tts_enabled=False, mode='stream',
@@ -80,6 +85,7 @@ class PipelineThinkingTimingTests(unittest.TestCase):
         self.assertEqual(started['model'], 'qwen3_5_9b_q6')
         final = next(e['data'] for e in events if e['type'] == 'metrics' and 'thinkingTime' in e['data'])
         self.assertEqual(final['thinkingTime'], 2.5)
+        self.assertEqual(final['thinkingToAnswerGap'], .4)
         reasoning = next(e for e in events if e['type'] == 'thinking_chunk')
         self.assertEqual(reasoning['text'], 'reasoning')
         answer = ''.join(e.get('text', '') for e in events if e['type'] == 'llm_chunk')

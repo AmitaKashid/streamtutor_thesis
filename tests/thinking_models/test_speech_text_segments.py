@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 import numpy as np
+from app.word_alignment import WordAlignmentError
 
 from test_pipeline_failure import load_pipeline
 
@@ -155,6 +156,39 @@ class SpeechTextSegmentsTest(unittest.TestCase):
         self.assertNotIn('audio_chunk', event_types)
         self.assertIn('audio_stop', event_types)
         self.assertNotIn('audio_done', event_types)
+
+    def test_known_alignment_failure_preserves_audio_and_displays_text_afterwards(self):
+        def fail(*_args):
+            raise WordAlignmentError('cannot align this segment')
+        events = run_pipeline('stream-input', StreamingTTS(), pieces=['Hello.'], word_aligner=fail)
+        delivery = [event for event in events if event['type'] in {'audio_chunk', 'audio_text', 'alignment_warning'}]
+        self.assertEqual([event['type'] for event in delivery], ['alignment_warning', 'audio_chunk', 'audio_text'])
+        self.assertIsNone(delivery[1]['text'])
+        self.assertEqual(delivery[2]['text'], 'Hello. ')
+        self.assertIn('audio_done', [event['type'] for event in events])
+
+    def test_alignment_error_on_formula_does_not_drop_later_speech(self):
+        def align(text, audio, sr):
+            if text.startswith('The entropy formula'):
+                raise WordAlignmentError('token mismatch')
+            return [{'text': text, 'start': 0., 'end': 0.}]
+        events = run_pipeline('stream-input', StreamingTTS(),
+                              pieces=['Entropy is uncertainty.', 'The entropy formula is minus p log p.', 'A fair coin has high entropy.'],
+                              word_aligner=align)
+        ordered = [e for e in events if e['type'] in {'audio_chunk', 'audio_text'}]
+        self.assertEqual([e.get('text') for e in ordered],
+                         ['Entropy is uncertainty. ', None, 'The entropy formula is minus p log p. ', 'A fair coin has high entropy. '])
+        self.assertIn('audio_done', [e['type'] for e in events])
+
+    def test_chunked_engine_also_falls_back_after_alignment_error(self):
+        def fail(*_args):
+            raise WordAlignmentError('timing unavailable')
+        events = run_pipeline('stream-chunked', ChunkedTTS(), pieces=['Hello.'], word_aligner=fail)
+        delivery = [e for e in events if e['type'] in {'audio_chunk', 'audio_text', 'alignment_warning'}]
+        self.assertEqual([e['type'] for e in delivery], ['alignment_warning', 'audio_chunk', 'audio_text'])
+        self.assertIsNone(delivery[1]['text'])
+        self.assertEqual(delivery[2]['text'], 'Hello. ')
+        self.assertIn('audio_done', [e['type'] for e in events])
 
     def test_web_config_routes_each_supported_engine_to_its_synthesis_api(self):
         source = (Path(__file__).resolve().parents[2] / 'frontend_api.py').read_text(encoding='utf-8')

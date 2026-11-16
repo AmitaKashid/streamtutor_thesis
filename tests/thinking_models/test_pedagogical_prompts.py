@@ -12,7 +12,7 @@ from app.conversation_context import contextual_user_query
 class PedagogicalPromptTests(unittest.TestCase):
     def test_four_modes_share_policy_but_have_distinct_methods(self):
         modules = (socratic, inquiry, adaptive, collaborative)
-        self.assertEqual(PROMPT_SET_VERSION, 'pedagogy-v1.2.0')
+        self.assertEqual(PROMPT_SET_VERSION, 'pedagogy-v1.3.0')
         self.assertEqual(len({module.METHOD for module in modules}), 4)
         for module in modules:
             with self.subTest(module=module.__name__):
@@ -23,8 +23,8 @@ class PedagogicalPromptTests(unittest.TestCase):
                 self.assertNotIn('[END]', module.SYSTEM_PROMPT)
 
     def test_introductory_explanations_are_not_forced_to_be_short(self):
-        self.assertIn('Define the idea in plain words', VOICE_POLICY)
-        self.assertIn('small, coherent example', VOICE_POLICY)
+        self.assertIn('define the idea in plain language', VOICE_POLICY)
+        self.assertIn('small, consistent, clearly hypothetical example', VOICE_POLICY)
         self.assertIn('Do not impose a fixed word limit', VOICE_POLICY)
         self.assertNotIn('at most 70 words', VOICE_POLICY)
 

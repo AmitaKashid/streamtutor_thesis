@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Iterator, Optional, Tuple
@@ -75,6 +76,8 @@ class Qwen3StreamingEngine(BaseTTSEngine):
             timeout=5,
         )
         ws.settimeout(0.2)
+        idle_since = time.monotonic()
+        idle_timeout = max(1.0, float(getattr(cfg, "timeout_s", self.cfg.timeout_s)))
 
         try:
             ws.send(json.dumps({
@@ -93,8 +96,13 @@ class Qwen3StreamingEngine(BaseTTSEngine):
                 try:
                     raw = ws.recv()
                 except WebSocketTimeoutException:
+                    if time.monotonic() - idle_since >= idle_timeout:
+                        raise TimeoutError(f"Qwen TTS sent no data for {idle_timeout:.1f} seconds")
                     continue
 
+                if not raw:
+                    raise RuntimeError("Qwen TTS disconnected before completing the speech segment")
+                idle_since = time.monotonic()
                 msg = json.loads(raw)
                 msg_type = msg.get("type")
 

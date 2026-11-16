@@ -157,7 +157,9 @@ PARAKEET_TIMEOUT_S = 120.0
 
 # Live partial transcription
 PARTIAL_TRANSCRIBE_EVERY_S = 0.30
-PARTIAL_MIN_AUDIO_S = 0.25
+# Pre-roll can contain up to 250 ms of silence; avoid spending the only
+# preview slot on almost entirely silent audio at speech onset.
+PARTIAL_MIN_AUDIO_S = 0.50
 
 # Clears a preview accidentally started by a short noise spike.
 PARTIAL_SILENCE_RESET_S = 1.0
@@ -167,8 +169,10 @@ PARTIAL_SILENCE_RESET_S = 1.0
 # WebRTC VAD and consecutive energy-qualified frames prevents a single click or
 # transient from stopping the tutor.
 INTERRUPT_RMS_THRESHOLD = 180.0
-INTERRUPT_RMS_RELEASE_THRESHOLD = 130.0
-INTERRUPT_MIN_FRAMES = 3  # 3 x 20 ms = about 60 ms to stop playback
+# Keep ordinary microphone capture sensitive while making barge-in more
+# selective. Eight consecutive 20 ms voice frames are required to pause.
+BARGE_IN_RMS_THRESHOLD = 300.0
+INTERRUPT_MIN_FRAMES = 8
 
 # Ignore only the first few browser-playback frames, where output startup can
 # create a short acoustic transient. This is not an STT wait.
@@ -193,6 +197,54 @@ _retriever = None
 _stt_backend = None
 _stt_backend_cache = {}
 _init_lock = threading.RLock()
+# The cached Whisper model can be shared by several WebSocket sessions.
+_whisper_inference_lock = threading.Lock()
+_preview_inference_lock = threading.Lock()
+_preview_init_lock = threading.Lock()
+_preview_backend = None
+_preview_init_started = False
+
+
+def start_preview_backend():
+    """Load a local lightweight English preview model without blocking capture.
+
+    The selected STT backend still provides the authoritative final transcript.
+    Set LLMTUTOR_PREVIEW_MODEL=off to use the selected backend for previews.
+    """
+    global _preview_init_started
+    name = os.getenv("LLMTUTOR_PREVIEW_MODEL", "tiny.en").strip()
+    if not name or name.lower() in {"off", "none", "disabled"}:
+        return
+    with _preview_init_lock:
+        if _preview_init_started:
+            return
+        _preview_init_started = True
+
+    def load():
+        global _preview_backend
+        try:
+            print(f"[LIVE PREVIEW] Loading local faster-whisper model {name} on CPU", flush=True)
+            model = create_backend("faster-whisper", {
+                "model": name, "device": "cpu", "compute_type": "int8",
+                "beam_size": 1, "cpu_threads": 2,
+            })
+            # Warm up away from the microphone worker; no student audio is used.
+            model.transcribe_partial(np.zeros(TARGET_SR // 2, dtype=np.float32),
+                                     TARGET_SR, language=STT_LANGUAGE)
+            with _preview_init_lock:
+                _preview_backend = model
+            print(f"[LIVE PREVIEW] Ready: {name} (CPU)", flush=True)
+        except Exception as exc:
+            # Continue using the configured recognizer for previews and final
+            # transcription if the model cannot be loaded or downloaded.
+            print(f"[LIVE PREVIEW] Unavailable; using configured STT: {type(exc).__name__}: {exc}", flush=True)
+
+    threading.Thread(target=load, name="load-live-preview", daemon=True).start()
+
+
+def select_preview_backend(fallback):
+    with _preview_init_lock:
+        return _preview_backend or fallback
 
 _llm_cache = {}
 _tts_engine_cache: dict[str, BaseTTSEngine] = {}
@@ -473,13 +525,13 @@ def build_pipeline_args(config: dict | None = None):
 
     if tts_backend == "qwen3":
         pipeline_mode = "stream-input"
-        chunk_first = 120
+        chunk_first = 70
         chunk_mid = 180
         chunk_later = 220
         chunk_wait = 0.30
     else:
         pipeline_mode = "stream-input" if tts_backend == "chatterbox_stream" else "stream-chunked"
-        chunk_first = 200
+        chunk_first = 90
         chunk_mid = 250
         chunk_later = 300
         chunk_wait = 0.5
@@ -623,6 +675,8 @@ STT_HALLUCINATION_SUBSTRINGS = {
     "hit the bell",
     "turn on notifications",
     "see you in the next video",
+    "that's it for this video",
+    "that is it for this video",
     "subtitles by",
     "captioned by",
     "transcribed by",
@@ -632,7 +686,7 @@ STT_HALLUCINATION_SUBSTRINGS = {
 
 
 def normalize_stt_text(text: str) -> str:
-    text = (text or "").lower().strip()
+    text = (text or "").lower().replace("’", "'").strip()
     text = re.sub(r"\[[^\]]*\]", " ", text)
     text = re.sub(r"\([^)]*\)", " ", text)
     text = re.sub(r"[^a-z0-9\s'-]", " ", text)
@@ -867,15 +921,16 @@ async def websocket_endpoint(websocket: WebSocket):
     )
 
     interrupt_capture_mode = False
+    interrupt_capture_turn_id = None
+    interrupt_context_at_pause: list[str] = []
     interrupt_counter = 0
     ignore_audio_until = 0.0
 
     # Short rolling pre-roll used only while assistant/browser audio is active.
-    # Speech onset stops playback; transcription never gates the stop signal.
     tts_probe_frames: list[bytes] = []
 
-    # After speech onset stops browser audio, keep capturing until the user
-    # actually finishes speaking.
+    # After speech onset pauses browser audio, keep capturing until the user
+    # finishes speaking and recognition can decide whether to stop or resume.
     interrupt_capture_started_at = 0.0
     interrupt_last_voice_at = 0.0
 
@@ -891,8 +946,16 @@ async def websocket_endpoint(websocket: WebSocket):
     # Protect partial transcript state shared by the audio and STT threads.
     partial_state_lock = threading.Lock()
 
-    # The same backend is used for partial and final STT.
+    # HTTP backends use a session-local lock; Whisper models have separate locks.
     stt_inference_lock = threading.Lock()
+    final_stt_requested = threading.Event()
+
+    def lock_for_stt(engine):
+        if _preview_backend is not None and engine is _preview_backend:
+            return _preview_inference_lock
+        if getattr(engine, "engine", None) == "faster-whisper":
+            return _whisper_inference_lock
+        return stt_inference_lock
 
     # Partial STT must not block the microphone/VAD worker.
     partial_executor = ThreadPoolExecutor(
@@ -1069,19 +1132,32 @@ async def websocket_endpoint(websocket: WebSocket):
 
         try:
             # Some local and HTTP STT backends are not safe for simultaneous calls.
-            with stt_inference_lock:
-                res = engine.transcribe(
+            wait_started = time.perf_counter()
+            with lock_for_stt(engine):
+                with partial_state_lock:
+                    if (session_closed.is_set() or generation != partial_generation
+                            or final_stt_requested.is_set()):
+                        return
+                inference_started = time.perf_counter()
+                transcribe_preview = getattr(engine, "transcribe_partial", engine.transcribe)
+                res = transcribe_preview(
                     audio=audio_np,
                     sample_rate=TARGET_SR,
                     language=STT_LANGUAGE,
                     return_words=False,
                 )
+            if os.getenv("LLMTUTOR_LATENCY_DIAGNOSTICS") == "1":
+                print(f"[PARTIAL STT TIMING] audio_s={len(audio_np) / TARGET_SR:.3f} "
+                      f"lock_wait_s={inference_started - wait_started:.3f} "
+                      f"inference_s={time.perf_counter() - inference_started:.3f}", flush=True)
 
             text = (res.text or "").strip()
 
             with partial_state_lock:
                 # Ignore results belonging to an earlier or completed utterance.
                 if session_closed.is_set() or generation != partial_generation:
+                    if os.getenv("LLMTUTOR_LATENCY_DIAGNOSTICS") == "1":
+                        print("[PARTIAL STT DROP] stale result", flush=True)
                     return
 
                 if is_stt_hallucination_text(text):
@@ -1094,11 +1170,13 @@ async def websocket_endpoint(websocket: WebSocket):
                     return
 
                 partial_last_text = text
-
-            emit_from_thread({
-                "type": "transcript_partial",
-                "text": text,
-            })
+                # Queue the event while holding the generation lock, so a
+                # finalized utterance cannot invalidate this result between
+                # the stale check and event submission.
+                emit_from_thread({
+                    "type": "transcript_partial",
+                    "text": text,
+                })
 
         except Exception as e:
             print(f"[PARTIAL STT ERROR] {type(e).__name__}: {e}")
@@ -1125,17 +1203,26 @@ async def websocket_endpoint(websocket: WebSocket):
 
             audio_bytes = b"".join(partial_frames)
             generation = partial_generation
-            partial_last_emit_t = now
 
         audio_np = pcm16_bytes_to_float32(audio_bytes)
 
         if len(audio_np) < int(TARGET_SR * PARTIAL_MIN_AUDIO_S):
             return
 
-        # Preserve the engine selected when this request was scheduled.
-        engine = stt_backend
+        with partial_state_lock:
+            if generation != partial_generation or final_stt_requested.is_set():
+                return
+            partial_last_emit_t = now
+
+        # A lightweight CPU model can update provisional text while the
+        # selected recognizer and the GPU remain available for final STT/TTS.
+        engine = select_preview_backend(stt_backend)
 
         partial_inflight.set()
+
+        if os.getenv("LLMTUTOR_LATENCY_DIAGNOSTICS") == "1":
+            print(f"[PARTIAL STT SCHEDULE] engine={getattr(engine, 'engine', type(engine).__name__)} "
+                  f"audio_s={len(audio_np) / TARGET_SR:.3f}", flush=True)
 
         partial_executor.submit(
             run_partial_transcription,
@@ -1145,7 +1232,7 @@ async def websocket_endpoint(websocket: WebSocket):
         )
 
     def transcribe_final(audio_np: np.ndarray) -> str:
-        with stt_inference_lock:
+        with lock_for_stt(stt_backend):
             res = stt_backend.transcribe(
                 audio=audio_np,
                 sample_rate=TARGET_SR,
@@ -1157,18 +1244,86 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
     def transcribe_final_timed(audio_np: np.ndarray) -> tuple[str, float]:
+        nonlocal partial_generation
         stt_timer = Timer()
-
-        with stt_inference_lock:
-            res = stt_backend.transcribe(
-                audio=audio_np,
-                sample_rate=TARGET_SR,
-                language=STT_LANGUAGE,
-                return_words=False,
-            )
+        # Discard pending previews before waiting for the model, so a stale
+        # result cannot arrive after endpointing. The final call retains the
+        # configured full-quality decoding.
+        final_stt_requested.set()
+        with partial_state_lock:
+            partial_generation += 1
+        try:
+            with lock_for_stt(stt_backend):
+                inference_started = time.perf_counter()
+                res = stt_backend.transcribe(
+                    audio=audio_np,
+                    sample_rate=TARGET_SR,
+                    language=STT_LANGUAGE,
+                    return_words=False,
+                )
+        finally:
+            final_stt_requested.clear()
 
         stt_time = stt_timer.elapsed()
+        if os.getenv("LLMTUTOR_LATENCY_DIAGNOSTICS") == "1":
+            print(f"[FINAL STT TIMING] audio_s={len(audio_np) / TARGET_SR:.3f} "
+                  f"lock_wait_s={inference_started - stt_timer.t0:.3f} "
+                  f"inference_s={time.perf_counter() - inference_started:.3f}", flush=True)
         return (res.text or "").strip(), stt_time
+
+    def complete_interruption(attempt_turn_id, transcript, stt_time):
+        """Cancel only a recognized interruption; otherwise resume the paused turn."""
+        nonlocal interrupt_capture_mode, interrupt_capture_turn_id
+        nonlocal interrupt_capture_started_at, interrupt_last_voice_at
+        nonlocal interrupt_context_at_pause
+
+        # A late recognizer result must never cancel a newer turn or undo a
+        # deliberate stop/microphone shutdown while recognition was running.
+        if (not interrupt_capture_mode or interrupt_capture_turn_id != attempt_turn_id
+                or active_audio_turn_id != attempt_turn_id or session_closed.is_set()
+                or not mic_enabled.is_set()):
+            return False
+
+        transcript = transcript.strip()
+        if is_stt_hallucination_text(transcript):
+            print(f"[INTERRUPTION FILTER] Rejected hallucination final: {transcript}")
+            transcript = ""
+        # Generation may continue while playback is paused, so retain the
+        # context from onset rather than collecting newer queued segments.
+        last_chunks = interrupt_context_at_pause
+
+        reset_partial_state()
+        reset_tts_probe_state()
+        interrupt_segmenter.reset()
+        drain_after_tts.clear()
+        interrupt_capture_mode = False
+        interrupt_capture_turn_id = None
+        interrupt_context_at_pause = []
+        interrupt_capture_started_at = 0.0
+        interrupt_last_voice_at = 0.0
+
+        if transcript and is_valid_barge_in_text(transcript, last_chunks):
+            playback.stop_now()
+            cancel_all_browser_delivery()
+            browser_audio_active.clear()
+            emit_from_thread({"type": "audio_stop", "turn_id": attempt_turn_id, "reason": "microphone"})
+            emit_from_thread({"type": "barge_in_accepted", "text": transcript})
+            emit_from_thread({"type": "stage", "value": "interrupted"})
+            launch_pipeline(
+                transcript=transcript,
+                interruption_text=transcript,
+                interrupted_chunks=last_chunks,
+                stt_time=stt_time,
+            )
+        else:
+            print(f"[BARGE-IN FILTER] Rejected final interruption candidate: {transcript}")
+            clear_frontend_transcript()
+            emit_from_thread({"type": "audio_resume", "turn_id": attempt_turn_id})
+            emit_from_thread({
+                "type": "stage",
+                "value": "speaking" if (tts_busy.is_set() or browser_audio_active.is_set()) else "listening",
+            })
+        return True
 
     def launch_pipeline(
         transcript: str,
@@ -1220,12 +1375,19 @@ async def websocket_endpoint(websocket: WebSocket):
                         alignment_language = request_args.qwen3_language if request_args.tts_backend == "qwen3" else STT_LANGUAGE
 
                         def word_aligner(text, audio, sample_rate):
-                            with stt_inference_lock:
+                            wait_started = time.perf_counter()
+                            with _whisper_inference_lock:
                                 if playback.interrupted.is_set():
                                     return []
-                                return align_with_whisper(
+                                inference_started = time.perf_counter()
+                                result = align_with_whisper(
                                     whisper_backend.model, text, audio, sample_rate, alignment_language,
                                 )
+                            if os.getenv("LLMTUTOR_LATENCY_DIAGNOSTICS") == "1":
+                                print(f"[ALIGNMENT TIMING] audio_s={len(audio) / sample_rate:.3f} "
+                                      f"lock_wait_s={inference_started - wait_started:.3f} "
+                                      f"inference_s={time.perf_counter() - inference_started:.3f}", flush=True)
+                            return result
 
                     run_llm_tts_pipeline(
                         transcript=transcript,
@@ -1252,6 +1414,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     )
 
                 except Exception as e:
+                    print(f"[TUTOR PIPELINE ERROR] {type(e).__name__}: {e}", flush=True)
                     emit_from_thread({
                         "type": "error",
                         "message": str(e),
@@ -1280,6 +1443,8 @@ async def websocket_endpoint(websocket: WebSocket):
     
     def worker():
         nonlocal interrupt_capture_mode, interrupt_counter, ignore_audio_until
+        nonlocal interrupt_capture_turn_id
+        nonlocal interrupt_context_at_pause
         nonlocal tts_probe_frames
         nonlocal interrupt_capture_started_at, interrupt_last_voice_at
         nonlocal last_final_user_text, last_final_user_at
@@ -1302,8 +1467,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 rms = frame_rms(frame_bytes)
 
                 if interrupt_capture_mode:
-                    # Browser audio was stopped at confirmed speech onset. Now capture
-                    # the complete interruption and update its live transcript.
+                    # Browser audio is paused, not cancelled, until the speech is
+                    # recognized and validated as a real interruption.
                     #
                     # Important:
                     # - Do not finalize after a fixed 1-second timeout.
@@ -1313,7 +1478,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     now = time.monotonic()
 
                     partial_frames.append(frame_bytes)
-                    emit_from_thread({"type": "stage", "value": "transcribing"})
 
                     # Live transcription while the user is still speaking.
                     maybe_emit_partial()
@@ -1339,57 +1503,30 @@ async def websocket_endpoint(websocket: WebSocket):
                     audio_bytes = b"".join(partial_frames)
                     audio_np = pcm16_bytes_to_float32(audio_bytes)
 
+                    attempt_turn_id = interrupt_capture_turn_id
                     transcript, stt_time = transcribe_final_timed(audio_np)
-                    transcript = transcript.strip()
-                    if is_stt_hallucination_text(transcript):
-                        print(f"[INTERRUPTION FILTER] Rejected hallucination final: {transcript}")
-                        transcript = ""
-                        clear_frontend_transcript()
-                    last_chunks = playback.get_interrupt_snapshot() or playback.get_interrupt_context(n_finished=3)
-
-                    reset_partial_state()
-                    reset_tts_probe_state()
-                    interrupt_segmenter.reset()
-                    drain_after_tts.clear()
-
-                    interrupt_capture_mode = False
-                    interrupt_capture_started_at = 0.0
-                    interrupt_last_voice_at = 0.0
-
-                    if (
-                        transcript
-                        and not is_stt_hallucination_text(transcript)
-                        and is_valid_barge_in_text(transcript, last_chunks)
-                    ):
-                        emit_from_thread({
-                            "type": "barge_in_accepted",
-                            "text": transcript,
-                        })
-                        emit_from_thread({
-                            "type": "stage",
-                            "value": "interrupted",
-                        })
-                        launch_pipeline(
-                            transcript=transcript,
-                            interruption_text=transcript,
-                            interrupted_chunks=last_chunks,
-                            stt_time=stt_time,
-                        )
-                    else:
-                        print(f"[BARGE-IN FILTER] Rejected final interruption candidate: {transcript}")
-                        clear_frontend_transcript()
-                        emit_from_thread({
-                            "type": "stage",
-                            "value": "listening" if mic_enabled.is_set() else "idle",
-                        })
-
+                    if not complete_interruption(attempt_turn_id, transcript, stt_time):
+                        # A different turn may have begun while STT was running.
+                        if interrupt_capture_turn_id == attempt_turn_id:
+                            interrupt_capture_mode = False
+                            interrupt_capture_turn_id = None
+                            interrupt_context_at_pause = []
+                            interrupt_capture_started_at = 0.0
+                            interrupt_last_voice_at = 0.0
+                            reset_partial_state()
+                            reset_tts_probe_state()
+                            interrupt_segmenter.reset()
                     continue
                 if tts_busy.is_set() or browser_audio_active.is_set():
                     # Assistant/browser audio is active.
                     # Do not launch normal STT turns here.
-                    # Stop as soon as WebRTC VAD plus consecutive RMS-qualified
-                    # frames confirm speech onset. STT runs only after this point,
-                    # so recognition latency cannot delay audio cancellation.
+                    # Pause on sustained speech, then cancel only when STT
+                    # confirms a valid interruption. Rejected audio resumes.
+
+                    if not active_audio_turn_id:
+                        reset_tts_probe_state()
+                        interrupt_counter = 0
+                        continue
 
                     if tts_busy.is_set() and playback.seconds_since_tts_start() < BARGE_IN_GRACE_S:
                         reset_tts_probe_state()
@@ -1408,9 +1545,9 @@ async def websocket_endpoint(websocket: WebSocket):
                         print(f"[BARGE-IN VAD ERROR] {type(e).__name__}: {e}")
                         vad_speech = False
 
-                    if vad_speech and rms >= INTERRUPT_RMS_THRESHOLD:
+                    if vad_speech and rms >= BARGE_IN_RMS_THRESHOLD:
                         interrupt_counter += 1
-                    elif rms < INTERRUPT_RMS_RELEASE_THRESHOLD:
+                    else:
                         interrupt_counter = 0
 
                     if interrupt_counter < INTERRUPT_MIN_FRAMES:
@@ -1418,13 +1555,15 @@ async def websocket_endpoint(websocket: WebSocket):
 
                     print(
                         "[BARGE-IN] Speech onset confirmed; "
-                        f"stopping audio after {interrupt_counter} frames."
+                        f"pausing audio after {interrupt_counter} frames."
                     )
 
                     # Enter capture mode before notifying the browser. Its immediate
                     # browser_audio_finished acknowledgement must not drain the user's
                     # still-active utterance.
                     interrupt_capture_mode = True
+                    interrupt_capture_turn_id = active_audio_turn_id
+                    interrupt_context_at_pause = playback.get_interrupt_context(n_finished=3)
                     interrupt_counter = 0
                     interrupt_last_voice_at = now
 
@@ -1441,13 +1580,11 @@ async def websocket_endpoint(websocket: WebSocket):
                     # Do not activate the post-TTS drain while recording the barge-in.
                     drain_after_tts.clear()
 
-                    playback.stop_now()
-                    cancel_all_browser_delivery()
-                    browser_audio_active.clear()
                     segmenter.reset()
                     interrupt_segmenter.reset()
 
-                    emit_from_thread({"type": "audio_stop", "turn_id": active_audio_turn_id})
+                    if interrupt_capture_turn_id:
+                        emit_from_thread({"type": "audio_pause", "turn_id": interrupt_capture_turn_id})
                     emit_from_thread({"type": "stage", "value": "transcribing"})
 
                     # If the pre-roll is already long enough, schedule the first live
@@ -1479,13 +1616,15 @@ async def websocket_endpoint(websocket: WebSocket):
                 if rms >= INTERRUPT_RMS_THRESHOLD:
                     partial_last_voice_t = normal_now
 
-                if rms >= INTERRUPT_RMS_THRESHOLD or partial_frames:
+                if rms >= INTERRUPT_RMS_THRESHOLD or segmenter.in_speech or partial_frames:
+                    if not partial_frames:
+                        # The segmenter has processed frames only up to the
+                        # previous iteration. Preserve its pre-roll, including
+                        # a quiet speech onset, without duplicating this frame.
+                        prior = segmenter.buffer if segmenter.in_speech else segmenter.pre
+                        partial_frames.extend(frame.tobytes() for frame in prior)
+                        emit_from_thread({"type": "stage", "value": "transcribing"})
                     partial_frames.append(frame_bytes)
-
-                    emit_from_thread({
-                        "type": "stage",
-                        "value": "transcribing",
-                    })
 
                     maybe_emit_partial()
 
@@ -1493,6 +1632,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 # Clear that abandoned preview after sustained silence.
                 if (
                     partial_frames
+                    and not segmenter.in_speech
                     and partial_last_voice_t > 0.0
                     and normal_now - partial_last_voice_t >= PARTIAL_SILENCE_RESET_S
                 ):
@@ -1557,17 +1697,21 @@ async def websocket_endpoint(websocket: WebSocket):
                 
             except Exception as e:
                 print(f"[WORKER ERROR] {type(e).__name__}: {e}")
+                if interrupt_capture_mode and interrupt_capture_turn_id:
+                    emit_from_thread({"type": "audio_resume", "turn_id": interrupt_capture_turn_id})
                 reset_partial_state()
                 reset_tts_probe_state()
                 segmenter.reset()
                 interrupt_segmenter.reset()
                 interrupt_capture_mode = False
+                interrupt_capture_turn_id = None
+                interrupt_context_at_pause = []
                 interrupt_counter = 0
                 interrupt_capture_started_at = 0.0
                 interrupt_last_voice_at = 0.0
                 emit_from_thread({
                     "type": "stage",
-                    "value": "listening" if mic_enabled.is_set() else "idle",
+                    "value": "speaking" if (tts_busy.is_set() or browser_audio_active.is_set()) else ("listening" if mic_enabled.is_set() else "idle"),
                 })
                 continue
             finally:
@@ -1653,6 +1797,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
             if action in {"start_audio", "start_stream"}:
                 apply_config(config)
+                start_preview_backend()
                 mic_enabled.set()
                 reset_partial_state()
                 await ws_send({"type": "stage", "value": "listening"})
@@ -1660,6 +1805,14 @@ async def websocket_endpoint(websocket: WebSocket):
 
             if action == "stop_audio":
                 mic_enabled.clear()
+                if interrupt_capture_mode and interrupt_capture_turn_id:
+                    await ws_send({"type": "audio_resume", "turn_id": interrupt_capture_turn_id})
+                interrupt_capture_mode = False
+                interrupt_capture_turn_id = None
+                interrupt_context_at_pause = []
+                interrupt_counter = 0
+                interrupt_capture_started_at = 0.0
+                interrupt_last_voice_at = 0.0
                 reset_partial_state()
                 segmenter.reset()
                 interrupt_segmenter.reset()
@@ -1729,6 +1882,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 drain_after_tts.set()
 
                 interrupt_capture_mode = False
+                interrupt_capture_turn_id = None
+                interrupt_context_at_pause = []
                 interrupt_counter = 0
                 interrupt_capture_started_at = 0.0
                 interrupt_last_voice_at = 0.0

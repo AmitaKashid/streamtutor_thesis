@@ -8,6 +8,7 @@ import unittest
 import uuid
 from pathlib import Path
 from unittest.mock import Mock
+from llm.llmcli.common.speech_text import speech_text
 
 
 def load_pipeline():
@@ -23,6 +24,7 @@ def load_pipeline():
         'ProsodyChunkerConfig': lambda **kw: None,
         'ProsodyChunker': lambda cfg: types.SimpleNamespace(feed=lambda parts: parts, flush=lambda: ''),
         'StreamingTextChunk': lambda **kw: types.SimpleNamespace(**kw),
+        'speech_text': speech_text,
         'set_tts_state': lambda *a: None, 'Timer': lambda: types.SimpleNamespace(elapsed=lambda: 0.0),
     }
     exec(compile(ast.fix_missing_locations(module), '<pipeline-under-test>', 'exec'), env)
@@ -89,6 +91,30 @@ class PipelineFailureTest(unittest.TestCase):
                 pipeline_active=active, judge=None, event_cb=events.append)
         self.assertEqual(sent, ['A complete sentence.'])
         self.assertTrue(any(e.get('type') == 'llm_chunk' and '😊' in e.get('text','') for e in events))
+
+    def test_display_keeps_formatting_while_speech_receives_clean_text(self):
+        run = load_pipeline()
+        run.__globals__['np_audio_to_pcm16_base64'] = lambda audio: ('pcm', 1)
+        playback = Mock(); playback.interrupted = threading.Event()
+        pieces = ['### Overview\n', '**Decision tree** predicts a class.']
+        llm = types.SimpleNamespace(stream=lambda prompt: iter(pieces))
+        spoken = []
+        class TTS:
+            def supports_streaming_input(self): return True
+            def stream_text(self, text, **kwargs):
+                spoken.extend(event.text for event in text if event.text)
+                if len(spoken) == 2:
+                    raise RuntimeError('end of synthetic test')
+                yield [0.0], 24000
+        args = types.SimpleNamespace(min_words=1, tts_enabled=True, mode='stream-input', teaching_style='default',
+            chunk_first=80, chunk_mid=100, chunk_later=200, chunk_wait=1, browser_audio=True, voice_prompt=None)
+        events = []; active = threading.Event(); active.set()
+        with self.assertRaisesRegex(RuntimeError, 'end of synthetic test'):
+            run(transcript='test question', stt_time=0, total_timer=types.SimpleNamespace(t0=time.perf_counter(), elapsed=lambda: 0.0), llm=llm,
+                tts_engine=TTS(), retriever=None, args=args, playback=playback,
+                pipeline_active=active, judge=None, event_cb=events.append)
+        self.assertEqual(''.join(e['text'] for e in events if e['type'] == 'llm_chunk'), ''.join(pieces))
+        self.assertEqual(''.join(spoken), 'Overview Decision tree predicts a class. ')
 
     def test_text_mode_failure_is_not_completed(self): self._check('stream', False)
     def test_stream_input_failure_is_not_completed(self): self._check('stream-input', True)

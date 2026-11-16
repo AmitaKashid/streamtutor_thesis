@@ -32,6 +32,8 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import { idleResponse, responseActivity, responseIsActive } from "./response-activity.mjs";
 import { createSynchronizedPlayback } from "./synchronized-playback.mjs";
+import { TutorMarkdown } from "./tutor-markdown";
+import { createAudioResampler } from "./audio-resampler.mjs";
 
 
 type Stage =
@@ -69,6 +71,7 @@ interface MetricState {
   ragLatency?: number;
   ttft?: number;
   thinkingTime?: number | null;
+  thinkingToAnswerGap?: number | null;
   llmAnswerTime?: number | null;
   model?: string | null;
   ttsFirstChunk?: number;
@@ -132,9 +135,11 @@ type ServerEvent =
   | { type: "text_interrupted"; turn_id: string }
   | { type: "audio_chunk"; turn_id: string; data: string; sample_rate: number; channels: number; text?: string | null; word_timings?: Array<{text: string; start: number; end: number}> | null }
   | { type: "audio_text"; turn_id: string; text: string }
+  | { type: "alignment_warning"; turn_id: string }
+  | { type: "audio_pause" | "audio_resume"; turn_id: string }
   | { type: "audio_done"; turn_id: string }
   | { type: "text_complete"; turn_id: string; text: string }
-  | { type: "audio_stop"; turn_id: string }
+  | { type: "audio_stop"; turn_id: string; reason?: string }
   | {
     type: "config_applied";
     data: {
@@ -246,6 +251,7 @@ function createId(prefix: string) {
 const normalizeSttText = (text: string) =>
   (text || "")
     .toLowerCase()
+    .replace(/’/g, "'")
     .replace(/\[[^\]]*\]/g, " ")
     .replace(/\([^)]*\)/g, " ")
     .replace(/[^a-z0-9\s'-]/g, " ")
@@ -282,6 +288,8 @@ const isSttHallucinationText = (text: string) => {
     "hit the bell",
     "turn on notifications",
     "see you in the next video",
+    "that's it for this video",
+    "that is it for this video",
     "subtitles by",
     "captioned by",
     "transcribed by",
@@ -447,6 +455,12 @@ function useTutorSocket(url: string) {
       playbackRef.current = createSynchronizedPlayback({
         getContext: getPlaybackContext,
         onText: appendAssistantText,
+        onUnderrun: (turnId, seconds) => {
+          console.warn(`[AUDIO UNDERRUN] turn=${turnId} gap_s=${seconds.toFixed(3)}`);
+        },
+        onPauseError: (turnId, error) => {
+          console.warn(`[AUDIO PAUSE] turn=${turnId}`, error);
+        },
         onDrained: (turnId) => {
           if (turnId !== playbackTurnIdRef.current || stoppedRef.current) return;
           finishAssistantMessage(turnId);
@@ -601,8 +615,22 @@ function useTutorSocket(url: string) {
             return;
           }
 
+          if (data.type === "alignment_warning") {
+            if (data.turn_id !== playbackTurnIdRef.current || stoppedRef.current) return;
+            setError("Word timing was unavailable for part of this answer. That text will appear after its speech.");
+            return;
+          }
+
+          if (data.type === "audio_pause" || data.type === "audio_resume") {
+            if (data.turn_id !== playbackTurnIdRef.current || stoppedRef.current) return;
+            if (data.type === "audio_pause") getPlayback().pause(data.turn_id);
+            else getPlayback().resume(data.turn_id);
+            return;
+          }
+
           if (data.type === "audio_stop") {
             if (data.turn_id === playbackTurnIdRef.current) {
+              if (data.reason === "microphone") console.info("[AUDIO STOP] Microphone voice activity detected.");
               stopBrowserAudio(data.turn_id);
               if (responseStateRef.current.generating) {
                 currentTurnMetricsRef.current = { ...currentTurnMetricsRef.current, thinkingTime: null, llmAnswerTime: null };
@@ -1182,7 +1210,7 @@ function MessageBubble({ message }: { message: Message }) {
             <div className="mt-2 whitespace-pre-wrap text-sm leading-6">{message.reasoning}</div>
           </details>
         ) : null}
-        <div className="whitespace-pre-wrap text-sm leading-7">{message.text}</div>
+        {isUser ? <div className="whitespace-pre-wrap text-sm leading-7">{message.text}</div> : <TutorMarkdown text={message.text} />}
         {message.streaming ? (
           <div className="mt-3 flex items-center gap-1 text-blue-500">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
@@ -1589,7 +1617,7 @@ function MetricsTable({ history }: { history: TurnMetricRecord[] }) {
                 <th className={`${columnHeaderClass} sticky left-0 z-30 bg-slate-50`}>
                   Turn
                 </th>
-                <th className={columnHeaderClass}>STT latency</th>
+                <th className={columnHeaderClass} title="Final transcription and model-lock wait; excludes speech capture and endpoint silence.">STT latency</th>
                 <th className={columnHeaderClass}>RAG latency</th>
                 <th className={columnHeaderClass}>Prompt chars</th>
                 <th className={columnHeaderClass} title="Previous conversation included in this request, before the current answer is stored.">History sent</th>
@@ -1603,9 +1631,9 @@ function MetricsTable({ history }: { history: TurnMetricRecord[] }) {
                 <th className={columnHeaderClass} title="First reasoning chunk to first answer chunk; client-observed.">Thinking</th>
                 <th className={columnHeaderClass} title="Time until the first answer text is available, including any thinking.">LLM TTFT (answer)</th>
                 <th className={columnHeaderClass}>LLM total</th>
-                <th className={columnHeaderClass}>TTS first chunk</th>
-                <th className={columnHeaderClass}>First audio</th>
-                <th className={columnHeaderClass}>Total pipeline</th>
+                <th className={columnHeaderClass} title="First TTS text segment to first audio emitted by the backend; includes synthesis and alignment.">TTS first chunk</th>
+                <th className={columnHeaderClass} title="Time from pipeline start after STT until audio is emitted by the backend; not audible speaker onset.">First audio</th>
+                <th className={columnHeaderClass} title="Backend processing after STT; excludes capture, endpoint silence and final browser audio playback.">Post-STT total</th>
               </tr>
             </thead>
 
@@ -1695,11 +1723,10 @@ function LatencyCharts({ metrics, history }: { metrics: MetricState; history: Tu
   const thinkingValid = measuredThinking != null && Number.isFinite(measuredThinking)
     && measuredThinking >= 0 && (metrics.ttft == null || measuredThinking <= llmValue);
   const thinkingValue = thinkingValid ? measuredThinking : 0;
-  const ttsValue = metrics.ttsFirstChunk ?? 0;
   const answerValue = metrics.llmAnswerTime;
   const answerAvailable = answerValue != null && Number.isFinite(answerValue) && answerValue >= 0;
 
-  const latencyShareData = [
+  const latencyMeasurements = [
     {
       name: "STT",
       description: "Speech-to-text latency",
@@ -1708,36 +1735,55 @@ function LatencyCharts({ metrics, history }: { metrics: MetricState; history: Tu
       color: "#2563eb",
     },
     {
-      name: "Thinking",
-      description: "First reasoning chunk to first answer chunk",
+      name: "LLM TTFT (answer)",
+      description: "LLM request to first answer text; includes thinking when enabled.",
+      available: metrics.ttft != null,
+      value: llmValue,
+      color: "#7c3aed",
+    },
+    {
+      name: "Thinking (within TTFT)",
+      description: "First observed reasoning to first answer; this overlaps with TTFT.",
       available: thinkingValid,
       value: thinkingValue,
       color: "#a855f7",
     },
     {
-      name: "Other LLM time",
-      description: "Time to first answer excluding the thinking interval; includes prefill, network and buffering",
-      available: metrics.ttft != null,
-      value: Math.max(0, llmValue - thinkingValue),
-      color: "#7c3aed",
+      name: "Last reasoning → answer",
+      description: "Time between the last observed reasoning delta and first answer delta; includes stream/network scheduling and is not the model's exact end-of-thinking timestamp.",
+      available: metrics.thinkingToAnswerGap != null,
+      value: metrics.thinkingToAnswerGap ?? 0,
+      color: "#c026d3",
     },
     {
-      name: "LLM answer",
-      description: "Elapsed time streaming the answer, including pauses",
+      name: "Answer generation",
+      description: "First to last answer text, including pauses; may overlap speech.",
       available: answerAvailable,
       value: answerAvailable ? answerValue : 0,
       color: "#0d9488",
     },
     {
-      name: "TTS",
-      description: "Time from first text chunk to first audio",
+      name: "TTS preparation",
+      description: "First speech text segment to audio ready to send; includes synthesis and alignment.",
       available: metrics.ttsFirstChunk != null,
-      value: ttsValue,
+      value: metrics.ttsFirstChunk ?? 0,
       color: "#f97316",
+    },
+    {
+      name: "First audio sent",
+      description: "Pipeline start after STT to first audio ready to send; not audible speaker onset.",
+      available: metrics.firstAudio != null,
+      value: metrics.firstAudio ?? 0,
+      color: "#db2777",
     },
   ];
 
-  const pieData = latencyShareData.filter((item) => item.value > 0);
+  // Only these distinct intervals are included in the pie. Other displayed
+  // timings overlap them and are intentionally excluded from the slices.
+  const pieData = latencyMeasurements.filter((item) =>
+    ["STT", "LLM TTFT (answer)", "TTS preparation"].includes(item.name)
+    && item.available && Number.isFinite(item.value) && item.value > 0,
+  );
 
   const ttftData = history
     .map((item) => ({
@@ -1754,48 +1800,43 @@ function LatencyCharts({ metrics, history }: { metrics: MetricState; history: Tu
       </div>
       <div className="grid min-h-0 flex-1 grid-rows-[0.95fr_1.25fr] gap-4">
         <div className="flex min-h-0 flex-col rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-blue-50/60 p-4">
-          <div className="mb-3 flex items-center gap-2" title="Relative shares of available timings. Components can overlap; thinking is included in time to first answer.">
+          <div className="mb-3 flex items-center gap-2" title="Measurements overlap and should not be added together.">
             <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-100 text-blue-700" aria-hidden="true">
               <BarChart3 className="h-4 w-4" />
             </span>
-            <div className="text-sm font-semibold text-slate-900">Latency breakdown</div>
+            <div className="text-sm font-semibold text-slate-900">Response timings</div>
           </div>
-          <div className="flex min-h-[260px] flex-1 flex-col items-center justify-center gap-6 rounded-xl border border-slate-100 bg-white/90 px-2 py-3 sm:flex-row">
-            <div className="h-[260px] w-[260px] shrink-0">
-              <ResponsiveContainer>
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    dataKey="value"
-                    nameKey="name"
-                    innerRadius={55}
-                    outerRadius={90}
-                    paddingAngle={3}
-                  >
-                    {pieData.map((item) => (
-                      <Cell key={item.name} fill={item.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value) => `${Number(value).toFixed(3)} s`} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-
-            <div
-              className="flex w-full max-w-[270px] flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-              aria-label="Latency chart legend"
-            >
-              {latencyShareData.map((item) => (
-                <div key={item.name} className="flex items-center gap-2" title={item.description}>
-                  <span
-                    className="h-3 w-3 shrink-0 rounded-full"
-                    style={{ backgroundColor: item.color }}
-                    aria-hidden="true"
-                  />
-                  <span className="min-w-0 flex-1 text-sm font-semibold text-slate-800">{item.name}</span>
-                  <span className="shrink-0 text-sm tabular-nums text-slate-600">{item.available ? formatSeconds(item.value) : "—"}</span>
-                </div>
-              ))}
+          <div className="flex min-h-[260px] flex-1 flex-col items-center justify-center gap-3 rounded-xl border border-slate-100 bg-white/90 px-2 py-3">
+            <p className="text-center text-xs text-slate-500">Pie: selected measured intervals, not total latency. Thinking is included in LLM TTFT.</p>
+            <div className="flex w-full flex-col items-center justify-center gap-4 sm:flex-row">
+              <div className="h-[260px] w-[260px] shrink-0" aria-label="Selected latency intervals">
+                {pieData.length ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={pieData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} paddingAngle={3}>
+                        {pieData.map((item) => <Cell key={item.name} fill={item.color} />)}
+                      </Pie>
+                      <Tooltip formatter={(value) => `${Number(value).toFixed(3)} s`} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : <div className="flex h-full items-center justify-center text-xs text-slate-500">No timings available yet</div>}
+              </div>
+              <div
+                className="flex w-full max-w-[400px] flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                aria-label="Response timing measurements"
+              >
+                {latencyMeasurements.map((item) => (
+                  <div key={item.name} className="flex items-center gap-2" title={item.description}>
+                    <span
+                      className="h-3 w-3 shrink-0 rounded-full"
+                      style={{ backgroundColor: item.color }}
+                      aria-hidden="true"
+                    />
+                    <span className="min-w-0 flex-1 text-sm font-semibold text-slate-800">{item.name}</span>
+                    <span className="shrink-0 text-sm tabular-nums text-slate-600">{item.available ? formatSeconds(item.value) : "—"}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -1986,35 +2027,6 @@ export default function Page() {
     currentStage === "streaming" ||
     currentStage === "speaking";
 
-  const downsampleTo16k = (
-    input: Float32Array,
-    inputSampleRate: number,
-    outputSampleRate = 16000,
-  ): Float32Array => {
-    if (inputSampleRate === outputSampleRate) return input;
-
-    const ratio = inputSampleRate / outputSampleRate;
-    const outputLength = Math.floor(input.length / ratio);
-    const output = new Float32Array(outputLength);
-
-    for (let i = 0; i < outputLength; i++) {
-      const start = Math.floor(i * ratio);
-      const end = Math.floor((i + 1) * ratio);
-
-      let sum = 0;
-      let count = 0;
-
-      for (let j = start; j < end && j < input.length; j++) {
-        sum += input[j];
-        count++;
-      }
-
-      output[i] = count > 0 ? sum / count : 0;
-    }
-
-    return output;
-  };
-
   const floatToPcm16Array = (input: Float32Array): number[] => {
     const out: number[] = [];
 
@@ -2155,6 +2167,7 @@ export default function Page() {
 
       const source = audioContext.createMediaStreamSource(stream);
       const workletNode = new AudioWorkletNode(audioContext, "pcm-worklet");
+      const resampler = createAudioResampler(audioContext.sampleRate, 16000);
 
       const silentGain = audioContext.createGain();
       silentGain.gain.value = 0;
@@ -2165,7 +2178,7 @@ export default function Page() {
 
       workletNode.port.onmessage = (event: MessageEvent<Float32Array>) => {
         const floatSamples = event.data;
-        const samples16k = downsampleTo16k(floatSamples, audioContext.sampleRate, 16000);
+        const samples16k = resampler.push(floatSamples);
         const pcm16 = floatToPcm16Array(samples16k);
         sendPcm16Frames(pcm16);
       };
