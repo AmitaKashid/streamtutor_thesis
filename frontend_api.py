@@ -221,7 +221,7 @@ def start_preview_backend():
         _preview_init_started = True
 
     def load():
-        global _preview_backend
+        global _preview_backend, _preview_init_started
         try:
             print(f"[LIVE PREVIEW] Loading local faster-whisper model {name} on CPU", flush=True)
             model = create_backend("faster-whisper", {
@@ -238,6 +238,8 @@ def start_preview_backend():
             # Continue using the configured recognizer for previews and final
             # transcription if the model cannot be loaded or downloaded.
             print(f"[LIVE PREVIEW] Unavailable; using configured STT: {type(exc).__name__}: {exc}", flush=True)
+            with _preview_init_lock:
+                _preview_init_started = False
 
     threading.Thread(target=load, name="load-live-preview", daemon=True).start()
 
@@ -281,6 +283,12 @@ def build_runtime_evaluator() -> LocalLLMJudge | None:
 
 
 _runtime_evaluator = build_runtime_evaluator()
+
+@app.on_event("startup")
+def startup_live_preview():
+    # Start downloading/loading/warming before the first microphone utterance.
+    # The loader itself runs in a daemon thread and does not block startup.
+    start_preview_backend()
 
 @app.on_event("startup")
 def startup_runtime_v1():
