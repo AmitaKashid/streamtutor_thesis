@@ -164,6 +164,10 @@ PARTIAL_MIN_AUDIO_S = 0.50
 # Clears a preview accidentally started by a short noise spike.
 PARTIAL_SILENCE_RESET_S = 1.0
 
+# Browser conversations use a shorter endpoint than the general VAD default.
+# It saves 200 ms after speech stops but may split longer mid-question pauses.
+VOICE_ENDPOINT_SILENCE_MS = 600
+
 # Speech-onset detector. Browser capture already enables acoustic echo
 # cancellation, noise suppression, and automatic gain control. Requiring both
 # WebRTC VAD and consecutive energy-qualified frames prevents a single click or
@@ -836,7 +840,7 @@ async def websocket_endpoint(websocket: WebSocket):
     session_closed = threading.Event()
     mic_enabled = threading.Event()
 
-    segmenter = VADSegmenter(aggressiveness=3)
+    segmenter = VADSegmenter(aggressiveness=3, silence_ms=VOICE_ENDPOINT_SILENCE_MS)
     interrupt_segmenter = VADSegmenter(aggressiveness=3)
     barge_in_vad = webrtcvad.Vad(3)
 

@@ -184,6 +184,27 @@ class VoiceLatencyTests(unittest.TestCase):
         self.assertFalse(vad.in_speech); self.assertEqual(vad.buffer, []); self.assertEqual(len(vad.pre), 0)
         self.assertIsNone(vad.flush())
 
+    def test_browser_endpoint_waits_600ms_and_keeps_short_pauses(self):
+        tree = ast.parse((ROOT / 'stt/vad_segmenter.py').read_text())
+        nodes = [copy.deepcopy(n) for n in tree.body if isinstance(n, ast.ClassDef)]
+        class Vad:
+            def __init__(self, aggressiveness): pass
+            def is_speech(self, frame, sample_rate): return bool(frame[0])
+        env = {'dataclass': dataclass, 'np': np, 'deque': deque, 'webrtcvad': types.SimpleNamespace(Vad=Vad),
+               'TARGET_SR': 16000, 'FRAME_MS': 20, 'MAX_SILENCE_MS': 800, 'MAX_UTTERANCE_MS': 30000,
+               'PRE_ROLL_MS': 250, '__name__': __name__}
+        module = ast.Module(body=[ast.ImportFrom(module='__future__', names=[ast.alias(name='annotations')], level=0), *nodes], type_ignores=[])
+        exec(compile(ast.fix_missing_locations(module), '<vad>', 'exec'), env)
+        vad = env['VADSegmenter'](silence_ms=600)
+        voice, silence = bytes([1]) * 640, bytes(640)
+        self.assertIsNone(vad.process_frame(voice, 0.0))
+        for i in range(29):
+            self.assertIsNone(vad.process_frame(silence, (i + 1) * .02))
+        self.assertIsNone(vad.process_frame(voice, .60))  # an ordinary pause does not end the turn
+        for i in range(29):
+            self.assertIsNone(vad.process_frame(silence, .62 + i * .02))
+        self.assertIsNotNone(vad.process_frame(silence, 1.20))
+
 
 if __name__ == '__main__':
     unittest.main()
