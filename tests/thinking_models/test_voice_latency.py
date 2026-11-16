@@ -185,14 +185,16 @@ class VoiceLatencyTests(unittest.TestCase):
                                    later_target_chars=180, max_chars=220, max_wait_s=.3)
         with patch('llm.llmcli.common.prosody_chunker.time.perf_counter', return_value=10):
             chunker = ProsodyChunker(cfg)
-            first = list(chunker.feed(['This is the first short sentence.']))
+            first = list(chunker.feed(['This is the first short sentence. ']))
             self.assertEqual(first, ['This is the first short sentence.'])
             # With no punctuation and no timer advance, the special second max
             # is still lower than the ordinary later max.
             words = 'word ' * 34
             second = list(chunker.feed([words]))
             self.assertEqual(len(second), 1)
-            self.assertLess(len(second[0]), 150)
+            # The limit can be exceeded by the last whole word; never cut it.
+            self.assertLessEqual(len(second[0]), 154)
+            self.assertTrue(second[0].endswith('word'))
             self.assertGreater(len(chunker.flush()), 0)
 
     def test_vad_reset_discards_active_speech_and_preroll(self):

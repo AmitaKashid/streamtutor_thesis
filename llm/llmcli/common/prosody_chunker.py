@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass
 from typing import Iterable, Iterator
@@ -22,6 +23,12 @@ class ProsodyChunkerConfig:
 class ProsodyChunker:
     STRONG_PUNCT = {".", "?", "!"}
     SOFT_PUNCT = {",", ";", ":"}
+    # Common abbreviations and dotted initials do not end a spoken sentence.
+    # A list alone cannot disambiguate every abbreviation; this avoids common
+    # false boundaries without changing the text sent to the model or browser.
+    _abbreviation = re.compile(r"(?:^|\s)(?:mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|fig|eq)\.$", re.IGNORECASE)
+    _initials = re.compile(r"(?:^|\s)(?:[a-z]\.){2,}$", re.IGNORECASE)
+    _closing_punctuation = re.compile(r"([.!?,;:])[\"'\)\]\}*]*$")
 
     def __init__(self, cfg: ProsodyChunkerConfig):
         self.cfg = cfg
@@ -43,8 +50,15 @@ class ProsodyChunker:
         self._last_flush_t = time.perf_counter()
         return text
 
+    def _ends_with_abbreviation(self) -> bool:
+        ending = self._buf.rstrip().rstrip("\"')]}*")
+        return bool(self._abbreviation.search(ending) or self._initials.search(ending))
+
     def _should_flush_on_punct(self, ch: str) -> bool:
         buf_len = len(self._buf.strip())
+
+        if ch == "." and self._ends_with_abbreviation():
+            return False
 
         if ch in self.STRONG_PUNCT:
             threshold = self.cfg.min_sentence_chars
@@ -75,6 +89,11 @@ class ProsodyChunker:
         return False
 
     def feed(self, pieces: Iterable[str]) -> Iterator[str]:
+        """Yield completed phrases, retaining partial words across model events.
+
+        Punctuation is considered when the following whitespace arrives. The
+        final phrase is emitted by flush() when model generation ends.
+        """
         for piece in pieces:
             if not piece:
                 continue
@@ -82,28 +101,26 @@ class ProsodyChunker:
             for ch in piece:
                 self._buf += ch
 
-                if self._should_flush_on_punct(ch):
+                # Wait for a word boundary before considering punctuation.
+                # A period seen in isolation may be inside 3.14 or a URL;
+                # the next token can arrive in a separate model event.
+                if not ch.isspace():
+                    continue
+                ending = self._closing_punctuation.search(self._buf.rstrip())
+                if ending and ending.group(1) == "." and self._ends_with_abbreviation():
+                    continue
+                if ending and self._should_flush_on_punct(ending.group(1)):
                     text = self._flush()
                     if text:
                         yield text
                     continue
 
                 if self._should_force_flush():
-                    candidate = self._buf.strip()
-                    split_idx = candidate.rfind(" ")
-                    if split_idx > 20:
-                        out = candidate[:split_idx].strip()
-                        rest = candidate[split_idx + 1:].strip()
-                        self._buf = rest
-                        self._started = True
-                        self._segment_count += 1
-                        self._last_flush_t = time.perf_counter()
-                        if out:
-                            yield out
-                    else:
-                        text = self._flush()
-                        if text:
-                            yield text
+                    # Never split a word, number, or URL merely because the
+                    # timer or character target was reached mid-token.
+                    text = self._flush()
+                    if text:
+                        yield text
 
     def flush(self) -> str:
         return self._flush() if self._buf.strip() else ""
