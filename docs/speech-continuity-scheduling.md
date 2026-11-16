@@ -1,0 +1,7 @@
+# Browser speech continuity
+
+The browser schedules up to 16 ready audio buffers ahead on its Web Audio clock, including buffers without word timings. Text with verified word timings follows the output-device clock; a text-only fallback waits until preceding audio finishes. Stopping the turn cancels queued sources. These changes remove avoidable gaps caused by waiting for a JavaScript `onended` callback. They cannot fill a gap when the next audio buffer has not arrived from the server.
+
+The local Qwen server streams audio for one complete text segment at a time; it does not accept more text while that synthesis request is running. In the synchronized mode, the server still collects and force-aligns each segment before the browser can play it. Synthesis speed, GPU contention, alignment and network scheduling can therefore produce real underruns. The number of buffers scheduled ahead is a memory bound, not a guarantee that audio is available.
+
+To investigate actual pauses, enable `LLMTUTOR_LATENCY_DIAGNOSTICS=1` before starting the frontend API. Capture `[ALIGNMENT TIMING]` from the backend, `[QWEN STREAM] synth done` from the Qwen server, and `[AUDIO UNDERRUN]` from the browser console. Qwen's log reports `rtf` as generated audio seconds divided by generation seconds; values below 1 indicate slower-than-realtime synthesis for that segment. Compare warm runs with the same question, model, speaker, microphone, browser and volume. These logs do not measure naturalness, individual word accuracy, or the actual sound at the speaker.

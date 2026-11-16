@@ -266,6 +266,81 @@ test('schedules a ready next timed segment without waiting for an end callback',
   assert.equal(sources[1].stopped, true);
 });
 
+test('schedules every ready timed segment without waiting for main-thread end callbacks', () => {
+  const { playback, sources } = fixture();
+  playback.start('t1');
+  for (const text of ['one', 'two', 'three']) {
+    playback.enqueueAudio('t1', { name: text, duration: 1 }, text,
+      [{ text, start: 0, end: .8 }]);
+  }
+  assert.equal(sources.length, 3);
+  assert.deepEqual(sources.map((s) => s.startedAt), [0, 1, 2]);
+  playback.clear();
+  assert.ok(sources.every((s) => s.stopped));
+});
+
+test('schedules untimed audio ahead and delays its text until its audio starts', async () => {
+  const { playback, context, events, sources } = fixture();
+  playback.start('t1');
+  playback.enqueueAudio('t1', { duration: 1 }, 'First ', [{ text: 'First ', start: 0, end: .8 }]);
+  playback.enqueueAudio('t1', { duration: 1 }, 'Second');
+  assert.equal(sources.length, 2);
+  assert.equal(sources[1].startedAt, 1);
+  assert.deepEqual(events.filter((e) => e[0] === 'text'), [['text', 't1', 'First ']]);
+  context.currentTime = 1.1;
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.deepEqual(events.filter((e) => e[0] === 'text'), [['text', 't1', 'First '], ['text', 't1', 'Second']]);
+  playback.clear();
+});
+
+test('text-only markers do not block scheduling later audio or reveal early', async () => {
+  const { playback, context, events, sources } = fixture();
+  playback.start('t1');
+  playback.enqueueAudio('t1', { duration: 1 }, 'First ', [{ text: 'First ', start: 0, end: .8 }]);
+  playback.enqueueText('t1', '😊 ');
+  playback.enqueueAudio('t1', { duration: 1 }, 'Second', [{ text: 'Second', start: .1, end: .8 }]);
+  assert.equal(sources.length, 2);
+  assert.equal(sources[1].startedAt, 1);
+  assert.deepEqual(events.filter((e) => e[0] === 'text'), [['text', 't1', 'First ']]);
+  context.currentTime = 1.2;
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(events.filter((e) => e[0] === 'text').map((e) => e[2]).join(''), 'First 😊 Second');
+  playback.clear();
+});
+
+test('limits scheduled nodes and refills from the queue after a node ends', () => {
+  const { playback, context, sources } = fixture();
+  playback.start('t1');
+  for (let i = 0; i < 18; i += 1) {
+    playback.enqueueAudio('t1', { duration: 1 }, `${i} `, [{ text: `${i} `, start: 0, end: .8 }]);
+  }
+  assert.equal(sources.length, 17);
+  context.currentTime = 1;
+  sources[0].end();
+  assert.equal(sources.length, 18);
+  assert.equal(sources[17].startedAt, 17);
+  playback.clear();
+});
+
+test('completion remains correct when later end callbacks arrive first', async () => {
+  const { playback, context, events, sources } = fixture();
+  playback.start('t1');
+  for (const text of ['one ', 'two ', 'three']) {
+    playback.enqueueAudio('t1', { duration: 1 }, text, [{ text, start: 0, end: .8 }]);
+  }
+  playback.finish('t1');
+  context.currentTime = 2;
+  sources[1].end();
+  sources[0].end();
+  assert.equal(events.some((e) => e[0] === 'drained'), false);
+  context.currentTime = 3;
+  sources[2].end();
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(events.filter((e) => e[0] === 'drained').length, 1);
+  assert.equal(events.filter((e) => e[0] === 'text').map((e) => e[2]).join(''), 'one two three');
+  playback.clear();
+});
+
 test('records a late segment as an underrun rather than fabricating continuous audio', () => {
   const { playback, context, events, sources } = fixture();
   playback.start('t1');
