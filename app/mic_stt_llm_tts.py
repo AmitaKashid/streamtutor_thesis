@@ -1707,6 +1707,48 @@ def run_llm_tts_pipeline(
 
         else:
             text_chunk_queue = queue.Queue()
+            chunk_audio_queue = queue.Queue(maxsize=2)
+            chunk_synthesis_done = threading.Event()
+            chunk_producer_failed = threading.Event()
+            tts_worker_errors = []
+            chunk_alignment_errors = []
+            tts_worker_failed = threading.Event()
+            parallel_chunk_alignment = getattr(args, "browser_audio", False) and word_aligner is not None
+
+            def queue_chunk_audio(item):
+                while not (playback.interrupted.is_set() or tts_worker_failed.is_set() or chunk_producer_failed.is_set()):
+                    try:
+                        chunk_audio_queue.put(item, timeout=0.05)
+                        return
+                    except queue.Full:
+                        continue
+
+            def deliver_chunk_audio(text, audio, sr):
+                if audio is None:
+                    emit({"type": "audio_text", "turn_id": evaluation_turn_id, "text": text + " "})
+                    return
+                timings = align_segment(text, audio, sr) if word_aligner is not None else None
+                if not playback.interrupted.is_set() and not chunk_producer_failed.is_set():
+                    if word_aligner is not None and timings is None:
+                        enqueue_audio_chunk(audio, sr)
+                        emit({"type": "audio_text", "turn_id": evaluation_turn_id, "text": text + " "})
+                    else:
+                        enqueue_audio_chunk(audio, sr, chunk_text=text + " ", word_timings=timings)
+
+            def run_chunk_alignment():
+                try:
+                    while not (playback.interrupted.is_set() or tts_worker_failed.is_set() or chunk_producer_failed.is_set()):
+                        try:
+                            item = chunk_audio_queue.get(timeout=0.05)
+                        except queue.Empty:
+                            if chunk_synthesis_done.is_set() and chunk_audio_queue.empty():
+                                return
+                            continue
+                        deliver_chunk_audio(*item)
+                except Exception as exc:
+                    chunk_alignment_errors.append(exc)
+                    tts_worker_failed.set()
+                    playback.interrupted.set()
 
             def tts_worker():
                 nonlocal audio_out, crossfader, tts_proc_total, first_audio_t
@@ -1727,7 +1769,10 @@ def run_llm_tts_pipeline(
                     # a non-spoken-only chunk to speech synthesis.
                     if not any(char.isalnum() for char in chunk_text):
                         if getattr(args, "browser_audio", False):
-                            emit({"type": "audio_text", "turn_id": evaluation_turn_id, "text": chunk_text + " "})
+                            if parallel_chunk_alignment:
+                                queue_chunk_audio((chunk_text, None, None))
+                            else:
+                                emit({"type": "audio_text", "turn_id": evaluation_turn_id, "text": chunk_text + " "})
                         text_chunk_queue.task_done()
                         continue
 
@@ -1753,16 +1798,12 @@ def run_llm_tts_pipeline(
                     wav_np = torch_to_np_tc(wav)
 
                     if getattr(args, "browser_audio", False):
-                        # Web UI mode:
-                        # Do not open Python sounddevice/AudioOutput.
-                        # Send synthesized audio directly to the browser.
-                        timings = align_segment(chunk_text, wav_np, sr) if word_aligner is not None else None
-                        if not playback.interrupted.is_set():
-                            if word_aligner is not None and timings is None:
-                                enqueue_audio_chunk(wav_np, sr)
-                                emit({"type": "audio_text", "turn_id": evaluation_turn_id, "text": chunk_text + " "})
-                            else:
-                                enqueue_audio_chunk(wav_np, sr, chunk_text=chunk_text + " ", word_timings=timings)
+                        # Keep synthesis moving while a separate ordered worker
+                        # aligns the previous segment for synchronized text.
+                        if parallel_chunk_alignment:
+                            queue_chunk_audio((chunk_text, wav_np, sr))
+                        else:
+                            deliver_chunk_audio(chunk_text, wav_np, sr)
                         text_chunk_queue.task_done()
                         continue
 
@@ -1780,9 +1821,6 @@ def run_llm_tts_pipeline(
                     smoothed = crossfader.process(wav_np)
                     enqueue_audio_chunk(smoothed, sr, chunk_text=chunk_text)
                     text_chunk_queue.task_done()
-            tts_worker_errors = []
-            tts_worker_failed = threading.Event()
-
             def run_tts_worker():
                 try:
                     tts_worker()
@@ -1790,7 +1828,13 @@ def run_llm_tts_pipeline(
                     tts_worker_errors.append(exc)
                     tts_worker_failed.set()
                     emit({"type": "tts_worker_error", "message": type(exc).__name__})
+                finally:
+                    chunk_synthesis_done.set()
 
+            chunk_alignment_thread = None
+            if parallel_chunk_alignment:
+                chunk_alignment_thread = threading.Thread(target=run_chunk_alignment, daemon=True)
+                chunk_alignment_thread.start()
             tts_thread = threading.Thread(target=run_tts_worker, daemon=True)
             tts_thread.start()
             try:
@@ -1802,6 +1846,8 @@ def run_llm_tts_pipeline(
                             first_chunk_sent_to_tts_t = perf_counter()
                         text_chunk_queue.put(ev.text.strip())
             except BaseException:
+                chunk_producer_failed.set()
+                playback.interrupted.set()
                 # Do not synthesize pending text after the LLM stream fails.
                 while True:
                     try:
@@ -1813,6 +1859,10 @@ def run_llm_tts_pipeline(
             finally:
                 text_chunk_queue.put(None)
                 tts_thread.join()
+                if chunk_alignment_thread is not None:
+                    chunk_alignment_thread.join()
+            if chunk_alignment_errors:
+                raise RuntimeError(f"Word alignment failed: {chunk_alignment_errors[0]}") from chunk_alignment_errors[0]
             if tts_worker_errors:
                 raise RuntimeError(f"TTS synthesis failed: {tts_worker_errors[0]}") from tts_worker_errors[0]
 
