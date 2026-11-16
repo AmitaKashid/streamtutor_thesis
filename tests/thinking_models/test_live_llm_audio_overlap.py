@@ -1,11 +1,85 @@
 """Model streaming must continue while a speech segment is synthesized."""
 import threading
 import unittest
+import numpy as np
 
 from test_speech_text_segments import run_pipeline
 
 
 class LiveLlmAudioOverlapTests(unittest.TestCase):
+    def test_interruption_unblocks_a_full_alignment_queue(self):
+        alignment_started = threading.Event()
+        release = threading.Event()
+        fourth_synthesis = threading.Event()
+        holder, events, errors = {}, [], []
+        class TTS:
+            def supports_streaming_input(self): return True
+            def stream_text(self, text_events, **_kwargs):
+                text = list(text_events)[0].text
+                if text.startswith('Segment 3'):
+                    fourth_synthesis.set()
+                yield np.zeros((2400, 1), dtype=np.float32), 24000
+        def align(text, audio, sample_rate):
+            alignment_started.set()
+            if not release.wait(3): raise RuntimeError('alignment did not release')
+            return [{'text': text, 'start': 0., 'end': .05}]
+        def observe(event, playback):
+            events.append(event); holder['playback'] = playback
+        def run():
+            try:
+                run_pipeline('stream-input', TTS(), pieces=[f'Segment {i}.' for i in range(20)],
+                             word_aligner=align, callback=observe)
+            except Exception as exc:
+                errors.append(exc)
+        thread = threading.Thread(target=run, daemon=True); thread.start()
+        try:
+            self.assertTrue(alignment_started.wait(2))
+            self.assertTrue(fourth_synthesis.wait(2))
+            holder['playback'].interrupted.set()
+        finally:
+            release.set(); thread.join(5)
+        self.assertFalse(thread.is_alive()); self.assertEqual(errors, [])
+        self.assertIn('audio_stop', [e['type'] for e in events])
+        self.assertNotIn('audio_done', [e['type'] for e in events])
+
+    def test_next_synthesis_can_overlap_prior_word_alignment(self):
+        first_alignment = threading.Event()
+        second_synthesis = threading.Event()
+        release_alignment = threading.Event()
+        events, errors = [], []
+
+        class TTS:
+            def supports_streaming_input(self): return True
+            def stream_text(self, text_events, **_kwargs):
+                text = list(text_events)[0].text
+                if text.startswith('Second'):
+                    second_synthesis.set()
+                yield np.zeros((2400, 1), dtype=np.float32), 24000
+
+        def align(text, audio, sample_rate):
+            if text.startswith('First'):
+                first_alignment.set()
+                if not release_alignment.wait(3):
+                    raise RuntimeError('alignment gate timed out')
+            return [{'text': text, 'start': 0., 'end': .05}]
+
+        def run():
+            try:
+                run_pipeline('stream-input', TTS(), pieces=['First.', 'Second.'],
+                             word_aligner=align, callback=lambda event, _: events.append(event))
+            except Exception as exc:
+                errors.append(exc)
+        thread = threading.Thread(target=run, daemon=True); thread.start()
+        try:
+            self.assertTrue(first_alignment.wait(2))
+            self.assertTrue(second_synthesis.wait(2), 'next synthesis waited for alignment')
+            self.assertFalse(any(event['type'] == 'audio_chunk' for event in events))
+        finally:
+            release_alignment.set(); thread.join(5)
+        self.assertFalse(thread.is_alive()); self.assertEqual(errors, [])
+        self.assertEqual([e['text'] for e in events if e['type'] == 'audio_chunk'], ['First. ', 'Second. '])
+        self.assertIn('audio_done', [e['type'] for e in events])
+
     def test_raw_model_delta_is_emitted_before_speech_segment_is_ready(self):
         second_delta = threading.Event()
         release = threading.Event()

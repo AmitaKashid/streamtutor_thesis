@@ -121,6 +121,7 @@ class FasterWhisperBackend(STTBackend):
         compute_type: str = "int8_float16",
         beam_size: int = 10,
         diag_dll: bool = False,
+        cpu_threads: int = 0,
     ):
         self.engine = "faster-whisper"
         self.beam_size = beam_size
@@ -178,18 +179,20 @@ class FasterWhisperBackend(STTBackend):
                 # safest "auto" default is int8
                 compute_type = "int8"
 
+        model_options = {"cpu_threads": cpu_threads} if cpu_threads > 0 else {}
         try:
             self.model = WhisperModel(
                 model,
                 device=device,
                 device_index=device_index,
                 compute_type=compute_type,
+                **model_options,
             )
         except Exception as e:
             if device == "cuda":
                 print(f"[WARN] CUDA init failed ({e}). Falling back to CPU (int8_float16).")
                 #self.model = WhisperModel(model, device="cpu", compute_type="int8_float16")
-                self.model = WhisperModel(model, device="cpu", compute_type="int8")
+                self.model = WhisperModel(model, device="cpu", compute_type="int8", **model_options)
             else:
                 raise
 
@@ -201,6 +204,20 @@ class FasterWhisperBackend(STTBackend):
         context: Optional[str] = None,
         return_words: bool = False,
     ) -> TranscriptResult:
+        return self._transcribe(audio, sample_rate, language, context, return_words, preview=False)
+
+    def transcribe_partial(
+        self,
+        audio: np.ndarray,
+        sample_rate: int,
+        language: Optional[str] = None,
+        context: Optional[str] = None,
+        return_words: bool = False,
+    ) -> TranscriptResult:
+        """Use greedy decoding for revisable live previews; keep final decoding unchanged."""
+        return self._transcribe(audio, sample_rate, language, context, return_words, preview=True)
+
+    def _transcribe(self, audio, sample_rate, language, context, return_words, *, preview):
         # Expect float32 mono; sample_rate should be 16000 in your standardized pipeline
         if audio.dtype != np.float32:
             audio = audio.astype(np.float32)
@@ -208,10 +225,10 @@ class FasterWhisperBackend(STTBackend):
         segments, info = self.model.transcribe(
             audio,
             language=language,
-            beam_size=self.beam_size,
+            beam_size=1 if preview else self.beam_size,
             vad_filter=False,
             word_timestamps=return_words,
-            condition_on_previous_text=True,
+            condition_on_previous_text=not preview,
             initial_prompt=context or None,
             temperature=0.0,
             patience=1.1,

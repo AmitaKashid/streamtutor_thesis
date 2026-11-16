@@ -32,7 +32,7 @@ $LlamaPort = 8000
 $QwenLlmModel = "qwen3_5_9b_q6"
 $QwenLlmPort = 8003
 
-$JudgeModel = "glm4_32b_0414_q4"
+$JudgeModel = "fare_20b_q4"
 $JudgePort = 8004
 
 $FrontendApiPort = 8001
@@ -442,7 +442,7 @@ $JudgeJobId = Submit-RemoteModelJob `
     $JudgeModel `
     $JudgePort `
     "Judge" `
-    "gpu80GB"
+    "gpu46GB"
 
 Write-Host "`n[5/14] Waiting for all remote jobs to receive GPU nodes..."
 $GemmaHost = Wait-ForRemoteFile "$RemoteProject/runtime/$GemmaModel.host" $GemmaJobId "Gemma host" 14400
@@ -505,7 +505,7 @@ Start-Process powershell -ArgumentList @(
 Test-Health "http://127.0.0.1:$ParakeetPort/healthz" "Parakeet STT" 900 '"status":"ok"'
 
 Write-Host "`n[13/14] Starting frontend_api..."
-$ApiCommand = "cd '$LocalProject'; .\.venv\Scripts\activate; python -m uvicorn frontend_api:app --host 127.0.0.1 --port $FrontendApiPort"
+$ApiCommand = "cd '$LocalProject'; .\.venv\Scripts\python.exe task5_acceptance.py serve"
 Start-Process powershell -ArgumentList @(
     "-NoExit",
     "-Command",

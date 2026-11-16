@@ -17,7 +17,7 @@ FRAME_MS = 20
 FRAME_SAMPLES = int(TARGET_SR * FRAME_MS / 1000)
 
 # Endpointing knobs
-MAX_SILENCE_MS = 1000      # end utterance after trailing silence
+MAX_SILENCE_MS = 800       # end utterance after trailing silence
 MAX_UTTERANCE_MS = 30000   # hard stop
 PRE_ROLL_MS = 250          # keep some audio before speech start
 
@@ -45,7 +45,7 @@ class VADSegmenter:
     def process_frame(self, frame_int16: bytes, frame_ts: float) -> Optional[Utterance]:
         is_speech = self.vad.is_speech(frame_int16, TARGET_SR)
 
-        if not self.in_speech:
+        if not self.in_speech and not is_speech:
             # collect pre-roll while idle
             self.pre.append(np.frombuffer(frame_int16, dtype=np.int16))
 
@@ -108,7 +108,9 @@ class VADSegmenter:
         (e.g., during TTS playback) to avoid emitting
         partial or stale utterances after unmuting.
         """
-        self._frames = []
-        self._speech_frames = []
-        self._silence_frames = 0
-        self._in_speech = False
+        self.pre.clear()
+        self.buffer = []
+        self.ms_in_buffer = 0
+        self.in_speech = False
+        self.trailing_silence_ms = 0
+        self.speech_start_ts = None
