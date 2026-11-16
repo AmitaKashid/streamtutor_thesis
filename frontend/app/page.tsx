@@ -250,57 +250,9 @@ function createId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-const normalizeSttText = (text: string) =>
-  (text || "")
-    .toLowerCase()
-    .replace(/’/g, "'")
-    .replace(/\[[^\]]*\]/g, " ")
-    .replace(/\([^)]*\)/g, " ")
-    .replace(/[^a-z0-9\s'-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-const isSttHallucinationText = (text: string) => {
-  const norm = normalizeSttText(text);
-
-  if (!norm) return true;
-
-  const exact = new Set([
-    "thank you",
-    "thanks",
-    "thanks for watching",
-    "thank you for watching",
-    "bye",
-    "bye bye",
-    "bye-bye",
-    "goodbye",
-    "see you next time",
-    "that's all",
-  ]);
-
-  if (exact.has(norm)) return true;
-
-  const substrings = [
-    "thanks for watching",
-    "thank you for watching",
-    "like and subscribe",
-    "subscribe to my channel",
-    "don't forget to subscribe",
-    "please subscribe",
-    "hit the bell",
-    "turn on notifications",
-    "see you in the next video",
-    "that's it for this video",
-    "that is it for this video",
-    "subtitles by",
-    "captioned by",
-    "transcribed by",
-    "music playing",
-    "applause",
-  ];
-
-  return substrings.some((phrase) => norm.includes(phrase));
-};
+// The backend checks acoustic/recognizer evidence. Never reject a phrase
+// just because its words resemble a known hallucination.
+const isEmptySttText = (text: string) => !text.trim();
 
 function formatSeconds(value?: number | null) {
   if (value === undefined || value === null || Number.isNaN(value)) return "—";
@@ -651,7 +603,7 @@ function useTutorSocket(url: string) {
           if (data.type === "transcript_partial") {
             const text = data.text || "";
 
-            if (isSttHallucinationText(text)) {
+            if (isEmptySttText(text)) {
               setPartialText("");
               return;
             }
@@ -664,7 +616,7 @@ function useTutorSocket(url: string) {
           if (data.type === "transcript_final" || data.type === "captured_text") {
             const text = (data.text || "").trim();
 
-            if (isSttHallucinationText(text)) {
+            if (isEmptySttText(text)) {
               setCapturedText("");
               setPartialText("");
               return;
@@ -677,7 +629,7 @@ function useTutorSocket(url: string) {
 
           if (data.type === "user_transcript_final") {
             const text = (data.text || "").trim();
-            if (isSttHallucinationText(text)) {
+            if (isEmptySttText(text)) {
               setCapturedText("");
               setPartialText("");
               return;
@@ -701,7 +653,7 @@ function useTutorSocket(url: string) {
 
           if (data.type === "barge_in_accepted") {
             const text = (data.text || "").trim();
-            if (isSttHallucinationText(text)) {
+            if (isEmptySttText(text)) {
               setCapturedText("");
               setPartialText("");
               return;

@@ -31,7 +31,7 @@ def interruption_fixture():
         'clear_frontend_transcript': lambda: calls.append('clear_transcript'),
         'emit_from_thread': events.append,
         'launch_pipeline': lambda **kwargs: calls.append(('launch', kwargs)),
-        'is_stt_hallucination_text': lambda text: not text or 'watching' in text,
+        'is_unusable_stt_text': lambda text: not text or 'watching' in text,
         'is_valid_barge_in_text': lambda text, last: text != 'echo',
     }
     load_method_nodes(ROOT / 'frontend_api.py', ['complete_interruption'], env)
@@ -70,19 +70,12 @@ class ResumableInterruptionTests(unittest.TestCase):
                 self.assertFalse(env['complete_interruption']('old', 'Explain entropy', .4))
                 self.assertEqual(events, []); self.assertEqual(calls, [])
 
-    def test_reported_video_hallucination_is_filtered_with_straight_or_curly_apostrophe(self):
-        tree = ast.parse((ROOT / 'frontend_api.py').read_text(encoding='utf-8'))
+    def test_legitimate_words_are_not_blocked_by_a_phrase_list(self):
         env = {'re': re}
-        for node in tree.body:
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id in {'STT_HALLUCINATION_EXACT', 'STT_HALLUCINATION_SUBSTRINGS'}:
-                        env[target.id] = ast.literal_eval(node.value)
-        load_method_nodes(ROOT / 'frontend_api.py', ['normalize_stt_text', 'is_stt_hallucination_text'], env)
-        for apostrophe in ("'", '’'):
-            text = f"So, that{apostrophe}s it for this video, I hope you enjoyed it, and I'll see you in the next one."
-            self.assertTrue(env['is_stt_hallucination_text'](text))
-        self.assertFalse(env['is_stt_hallucination_text']('Explain entropy and decision trees.'))
+        load_method_nodes(ROOT / 'frontend_api.py', ['normalize_stt_text', 'is_unusable_stt_text'], env)
+        self.assertFalse(env['is_unusable_stt_text']('Thank you. Bye.'))
+        self.assertFalse(env['is_unusable_stt_text']('Explain entropy and decision trees.'))
+        self.assertTrue(env['is_unusable_stt_text']('...'))
 
 
 if __name__ == '__main__':

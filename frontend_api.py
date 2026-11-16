@@ -161,6 +161,11 @@ PARTIAL_TRANSCRIBE_EVERY_S = 0.30
 # preview slot on almost entirely silent audio at speech onset.
 PARTIAL_MIN_AUDIO_S = 0.50
 
+# Require speech-like frames, not energy alone, before sending a microphone
+# snapshot to STT. Counted during the existing VAD pass; no additional wait is
+# inserted once the regular 500 ms preview buffer is available.
+MIN_VOICED_MS = 120
+
 # Clears a preview accidentally started by a short noise spike.
 PARTIAL_SILENCE_RESET_S = 1.0
 
@@ -658,45 +663,6 @@ def audio_rms_float(audio_np: np.ndarray) -> float:
         return 0.0
     return float(np.sqrt(np.mean(audio_np * audio_np) + 1e-12))
 
-STT_HALLUCINATION_EXACT = {
-    "thank you",
-    "thank you very much",
-    "thank you so much",
-    "thanks",
-    "thanks a lot",
-    "thanks very much",
-    "thanks for watching",
-    "thank you for watching",
-    "thanks for watching.",
-    "thank you for watching.",
-    "bye",
-    "bye bye",
-    "bye-bye",
-    "goodbye",
-    "see you next time",
-    "that's all",
-}
-
-STT_HALLUCINATION_SUBSTRINGS = {
-    "thanks for watching",
-    "thank you for watching",
-    "like and subscribe",
-    "subscribe to my channel",
-    "don't forget to subscribe",
-    "please subscribe",
-    "hit the bell",
-    "turn on notifications",
-    "see you in the next video",
-    "that's it for this video",
-    "that is it for this video",
-    "subtitles by",
-    "captioned by",
-    "transcribed by",
-    "music playing",
-    "applause",
-}
-
-
 def normalize_stt_text(text: str) -> str:
     text = (text or "").lower().replace("’", "'").strip()
     text = re.sub(r"\[[^\]]*\]", " ", text)
@@ -706,53 +672,10 @@ def normalize_stt_text(text: str) -> str:
     return text.strip(" .!?,")
 
 
-def is_stt_hallucination_text(text: str) -> bool:
-    """
-    Filters common Whisper/faster-whisper hallucinations from silence,
-    echo tails, and non-speech audio. This must be used before showing
-    partial text and before launching the LLM.
-    """
-    norm = normalize_stt_text(text)
-
-    if not norm:
-        return True
-
-    if norm in STT_HALLUCINATION_EXACT:
-        return True
-
-    for phrase in STT_HALLUCINATION_SUBSTRINGS:
-        if phrase in norm:
-            return True
-
-    words = norm.split()
-
-    # Repeated hallucination loops, e.g. "thank you thank you"
-    # and short generic politeness/closing phrases from browser/Whisper noise.
-    thank_words = {"thank", "you", "thanks", "very", "much", "so"}
-    if words and all(w in thank_words for w in words) and any(w in {"thank", "thanks"} for w in words):
-        return True
-
-    if len(words) >= 4:
-        unique_ratio = len(set(words)) / max(1, len(words))
-        if unique_ratio <= 0.50:
-            return True
-
-    # Very short generic closings are usually not real tutor questions.
-    if len(words) <= 5 and norm in {
-        "thank you",
-        "thank you very much",
-        "thank you so much",
-        "thanks",
-        "thanks very much",
-        "bye",
-        "bye bye",
-        "goodbye",
-        "okay bye",
-    }:
-        return True
-
-    return False
-
+def is_unusable_stt_text(text: str) -> bool:
+    # Legacy name retained for callers: acoustic/model evidence is evaluated
+    # before this point. Never blacklist the student's words.
+    return not any(char.isalnum() for char in (text or ""))
 
 
 def is_valid_normal_user_text(text: str, audio_np: np.ndarray) -> bool:
@@ -761,12 +684,8 @@ def is_valid_normal_user_text(text: str, audio_np: np.ndarray) -> bool:
     if not text:
         return False
 
-    if is_stt_hallucination_text(text):
-        print(f"[STT FILTER] Rejected hallucination text: {text}")
-        return False
-
-    words = text.split()
-    if len(words) < 2:
+    if is_unusable_stt_text(text):
+        print(f"[STT FILTER] Rejected empty or non-verbal text: {text}")
         return False
 
     if len(audio_np) < int(0.45 * TARGET_SR):
@@ -1172,8 +1091,10 @@ async def websocket_endpoint(websocket: WebSocket):
                         print("[PARTIAL STT DROP] stale result", flush=True)
                     return
 
-                if is_stt_hallucination_text(text):
-                    print(f"[PARTIAL FILTER] Rejected hallucination partial: {text}")
+                if is_unusable_stt_text(text):
+                    if partial_last_text:
+                        partial_last_text = ""
+                        emit_from_thread({"type": "transcript_partial", "text": ""})
                     return
 
                 # Partial STT returns the complete current hypothesis.
@@ -1297,8 +1218,8 @@ async def websocket_endpoint(websocket: WebSocket):
             return False
 
         transcript = transcript.strip()
-        if is_stt_hallucination_text(transcript):
-            print(f"[INTERRUPTION FILTER] Rejected hallucination final: {transcript}")
+        if is_unusable_stt_text(transcript):
+            print(f"[INTERRUPTION FILTER] Rejected empty or non-verbal final: {transcript}")
             transcript = ""
         # Generation may continue while playback is paused, so retain the
         # context from onset rather than collecting newer queued segments.
@@ -1492,6 +1413,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     partial_frames.append(frame_bytes)
 
                     # Live transcription while the user is still speaking.
+                    # Barge-in onset already required sustained VAD speech.
                     maybe_emit_partial()
 
                     if rms >= INTERRUPT_CAPTURE_SILENCE_RMS:
@@ -1638,7 +1560,8 @@ async def websocket_endpoint(websocket: WebSocket):
                         emit_from_thread({"type": "stage", "value": "transcribing"})
                     partial_frames.append(frame_bytes)
 
-                    maybe_emit_partial()
+                    if segmenter.in_speech and segmenter.voiced_ms >= MIN_VOICED_MS:
+                        maybe_emit_partial()
 
                 # A noise spike can start a preview without creating a valid VAD utterance.
                 # Clear that abandoned preview after sustained silence.
@@ -1653,6 +1576,11 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 utt = segmenter.process_frame(frame_bytes, ts)
                 if utt is None:
+                    continue
+
+                if utt.voiced_ms < MIN_VOICED_MS:
+                    reset_partial_state()
+                    clear_frontend_transcript()
                     continue
 
                 audio_np = utt.audio.astype(np.float32) / 32768.0
@@ -1760,8 +1688,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 # Browser speech recognition can emit polite hallucinations such as
                 # "Thank you very much" from silence or TTS echo. Do not stop/restart
                 # the tutor for these.
-                if is_stt_hallucination_text(text):
-                    print(f"[FRONTEND BARGE-IN FILTER] Rejected hallucination text: {text}")
+                if is_unusable_stt_text(text):
+                    print(f"[FRONTEND BARGE-IN FILTER] Rejected empty or non-verbal text: {text}")
                     clear_frontend_transcript()
                     await ws_send({
                         "type": "stage",
