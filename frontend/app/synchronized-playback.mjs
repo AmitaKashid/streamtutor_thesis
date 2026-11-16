@@ -17,8 +17,11 @@ export function createSynchronizedPlayback({ getContext, onText, onDrained, onEr
   /** @type {AudioBufferSourceNode | null} */
   let source = null;
   let sourceEnd = 0;
-  /** @type {{node: AudioBufferSourceNode, end: number} | null} */
-  let scheduled = null;
+  /** @type {Array<{node: AudioBufferSourceNode, end: number, ended: boolean}>} */
+  let scheduled = [];
+  // Bound the number of future Web Audio nodes without waiting for callbacks
+  // after every segment. Audio already received remains in the ordinary queue.
+  const maxScheduledNodes = 16;
   /** @type {string | null} */
   let turnId = null;
   let epoch = 0;
@@ -50,15 +53,15 @@ export function createSynchronizedPlayback({ getContext, onText, onDrained, onEr
     const oldSource = source;
     source = null;
     const oldScheduled = scheduled;
-    scheduled = null;
+    scheduled = [];
     sourceEnd = 0;
     if (oldSource) {
       oldSource.onended = null;
       try { oldSource.stop(); } catch { /* already stopped */ }
     }
-    if (oldScheduled) {
-      oldScheduled.node.onended = null;
-      try { oldScheduled.node.stop(); } catch { /* already stopped */ }
+    for (const item of oldScheduled) {
+      item.node.onended = null;
+      try { item.node.stop(); } catch { /* already stopped */ }
     }
     turnId = null;
   }
@@ -102,34 +105,54 @@ export function createSynchronizedPlayback({ getContext, onText, onDrained, onEr
 
   /** @param {AudioContext} ctx @param {string} currentTurn @param {number} currentEpoch */
   function scheduleAhead(ctx, currentTurn, currentEpoch) {
-    if (!source || scheduled || !sourceEnd || !queue[0]?.buffer || !queue[0]?.words?.length) return;
-    const item = queue.shift();
-    if (!item?.buffer || !Number.isFinite(item.buffer.duration)) {
-      if (item) queue.unshift(item);
-      return;
+    if (!source || !sourceEnd) return;
+    let tailEnd = scheduled.length ? scheduled[scheduled.length - 1].end : sourceEnd;
+    while (queue.length && scheduled.length < maxScheduledNodes) {
+      const item = queue[0];
+      if (!item.buffer) {
+        queue.shift();
+        if (item.text) pendingWords.push({ text: item.text, at: tailEnd });
+        continue;
+      }
+      if (!Number.isFinite(item.buffer.duration)) break;
+      queue.shift();
+      const next = ctx.createBufferSource();
+      next.buffer = item.buffer;
+      next.connect(ctx.destination);
+      const startedAt = Math.max(ctx.currentTime, tailEnd);
+      const end = startedAt + item.buffer.duration;
+      next.onended = () => handleEnd(next, ctx, currentTurn, currentEpoch);
+      next.start(startedAt);
+      trackSegmentTiming(startedAt, item.buffer.duration, currentTurn);
+      scheduled.push({ node: next, end, ended: false });
+      pendingOutputUntil = Math.max(pendingOutputUntil, end);
+      if (item.words?.length) {
+        pendingWords.push(...item.words.map((word) => ({ text: word.text, at: startedAt + word.start })));
+      } else if (item.text) {
+        pendingWords.push({ text: item.text, at: startedAt });
+      }
+      tailEnd = end;
     }
-    const next = ctx.createBufferSource();
-    next.buffer = item.buffer;
-    next.connect(ctx.destination);
-    const startedAt = Math.max(ctx.currentTime, sourceEnd);
-    const end = startedAt + item.buffer.duration;
-    next.onended = () => handleEnd(next, ctx, currentTurn, currentEpoch);
-    next.start(startedAt);
-    trackSegmentTiming(startedAt, item.buffer.duration, currentTurn);
-    scheduled = { node: next, end };
-    pendingOutputUntil = Math.max(pendingOutputUntil, end);
-    pendingWords.push(...item.words.map((word) => ({ text: word.text, at: startedAt + word.start })));
-    if (textTimer === null) revealDueWords(ctx, currentTurn, currentEpoch);
+    if (pendingWords.length && textTimer === null) revealDueWords(ctx, currentTurn, currentEpoch);
   }
 
   /** @param {AudioBufferSourceNode} node @param {AudioContext} ctx @param {string} currentTurn @param {number} currentEpoch */
   function handleEnd(node, ctx, currentTurn, currentEpoch) {
-    if (epoch !== currentEpoch || turnId !== currentTurn || source !== node) return;
+    if (epoch !== currentEpoch || turnId !== currentTurn) return;
+    if (source !== node) {
+      const future = scheduled.find((item) => item.node === node);
+      if (future) future.ended = true;
+      return;
+    }
     source = null;
-    if (scheduled) {
-      source = scheduled.node;
-      sourceEnd = scheduled.end;
-      scheduled = null;
+    while (scheduled.length && !source) {
+      const next = scheduled.shift();
+      if (next && !next.ended) {
+        source = next.node;
+        sourceEnd = next.end;
+      }
+    }
+    if (source) {
       try { scheduleAhead(ctx, currentTurn, currentEpoch); }
       catch (error) { onError(currentTurn, error); }
     } else {
