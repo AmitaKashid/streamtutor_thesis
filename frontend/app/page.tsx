@@ -156,7 +156,7 @@ type ServerEvent =
       conversation_max_turns?: number;
     };
   }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string; nonfatal?: boolean };
 
 const LLM_MODELS = [
   { value: "llama3_8b_q4", label: "Llama 3 8B Q4" },
@@ -741,13 +741,15 @@ function useTutorSocket(url: string) {
           }
 
           if (data.type === "error") {
-            if (playbackTurnIdRef.current) {
-              setMetrics(metricsLedgerRef.current.update(playbackTurnIdRef.current, { thinkingTime: null, llmAnswerTime: null }));
+            if (!data.nonfatal) {
+              if (playbackTurnIdRef.current) {
+                setMetrics(metricsLedgerRef.current.update(playbackTurnIdRef.current, { thinkingTime: null, llmAnswerTime: null }));
+              }
+              stopBrowserAudio();
+              updateResponse({ type: "reset" });
+              setStage("error");
             }
-            stopBrowserAudio();
-            updateResponse({ type: "reset" });
             setError(data.message);
-            setStage("error");
           }
         } catch {
           stopBrowserAudio();

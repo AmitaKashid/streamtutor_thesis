@@ -43,6 +43,7 @@ from app.word_alignment import align_with_whisper
 from rag.rag_retrieve import RagRetriever
 from stt.stt_backends import create_backend
 from stt.vad_segmenter import VADSegmenter, TARGET_SR
+from stt.speech_evidence import SpeechEvidenceError, speech_audio, warm_speech_evidence
 from tts.base_engine import BaseTTSEngine
 from tts.chatterbox_engine import ChatterboxEngine
 from tts.config import (
@@ -298,6 +299,10 @@ def startup_live_preview():
     # Start downloading/loading/warming before the first microphone utterance.
     # The loader itself runs in a daemon thread and does not block startup.
     start_preview_backend()
+
+@app.on_event("startup")
+def startup_speech_evidence():
+    threading.Thread(target=warm_speech_evidence, name="warm-speech-evidence", daemon=True).start()
 
 @app.on_event("startup")
 def startup_runtime_v1():
@@ -880,6 +885,13 @@ async def websocket_endpoint(websocket: WebSocket):
     # HTTP backends use a session-local lock; Whisper models have separate locks.
     stt_inference_lock = threading.Lock()
     final_stt_requested = threading.Event()
+    speech_evidence_error_reported = threading.Event()
+
+    def report_speech_evidence_error():
+        if not speech_evidence_error_reported.is_set() and not session_closed.is_set():
+            speech_evidence_error_reported.set()
+            emit_from_thread({"type": "error", "nonfatal": True,
+                              "message": "Speech verification is unavailable. Check the backend log and restart the application."})
 
     def lock_for_stt(engine):
         if _preview_backend is not None and engine is _preview_backend:
@@ -1062,6 +1074,14 @@ async def websocket_endpoint(websocket: WebSocket):
         nonlocal partial_last_text
 
         try:
+            evidence_started = time.perf_counter()
+            verified_audio = speech_audio(audio_np, TARGET_SR)
+            if verified_audio is None:
+                with partial_state_lock:
+                    if generation == partial_generation and partial_last_text:
+                        partial_last_text = ""
+                        emit_from_thread({"type": "transcript_partial", "text": ""})
+                return
             # Some local and HTTP STT backends are not safe for simultaneous calls.
             wait_started = time.perf_counter()
             with lock_for_stt(engine):
@@ -1072,13 +1092,14 @@ async def websocket_endpoint(websocket: WebSocket):
                 inference_started = time.perf_counter()
                 transcribe_preview = getattr(engine, "transcribe_partial", engine.transcribe)
                 res = transcribe_preview(
-                    audio=audio_np,
+                    audio=verified_audio,
                     sample_rate=TARGET_SR,
                     language=STT_LANGUAGE,
                     return_words=False,
                 )
             if os.getenv("LLMTUTOR_LATENCY_DIAGNOSTICS") == "1":
                 print(f"[PARTIAL STT TIMING] audio_s={len(audio_np) / TARGET_SR:.3f} "
+                      f"speech_check_s={wait_started - evidence_started:.3f} "
                       f"lock_wait_s={inference_started - wait_started:.3f} "
                       f"inference_s={time.perf_counter() - inference_started:.3f}", flush=True)
 
@@ -1111,6 +1132,13 @@ async def websocket_endpoint(websocket: WebSocket):
                     "text": text,
                 })
 
+        except SpeechEvidenceError as e:
+            print(f"[SPEECH EVIDENCE ERROR] {e}", flush=True)
+            with partial_state_lock:
+                if generation == partial_generation and partial_last_text:
+                    partial_last_text = ""
+                    emit_from_thread({"type": "transcript_partial", "text": ""})
+            report_speech_evidence_error()
         except Exception as e:
             print(f"[PARTIAL STT ERROR] {type(e).__name__}: {e}")
 
@@ -1186,10 +1214,15 @@ async def websocket_endpoint(websocket: WebSocket):
         with partial_state_lock:
             partial_generation += 1
         try:
+            evidence_started = time.perf_counter()
+            verified_audio = speech_audio(audio_np, TARGET_SR)
+            evidence_done = time.perf_counter()
+            if verified_audio is None:
+                return "", stt_timer.elapsed()
             with lock_for_stt(stt_backend):
                 inference_started = time.perf_counter()
                 res = stt_backend.transcribe(
-                    audio=audio_np,
+                    audio=verified_audio,
                     sample_rate=TARGET_SR,
                     language=STT_LANGUAGE,
                     return_words=False,
@@ -1200,7 +1233,8 @@ async def websocket_endpoint(websocket: WebSocket):
         stt_time = stt_timer.elapsed()
         if os.getenv("LLMTUTOR_LATENCY_DIAGNOSTICS") == "1":
             print(f"[FINAL STT TIMING] audio_s={len(audio_np) / TARGET_SR:.3f} "
-                  f"lock_wait_s={inference_started - stt_timer.t0:.3f} "
+                  f"speech_check_s={evidence_done - evidence_started:.3f} "
+                  f"lock_wait_s={inference_started - evidence_done:.3f} "
                   f"inference_s={time.perf_counter() - inference_started:.3f}", flush=True)
         return (res.text or "").strip(), stt_time
 
@@ -1637,6 +1671,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 
             except Exception as e:
                 print(f"[WORKER ERROR] {type(e).__name__}: {e}")
+                if isinstance(e, SpeechEvidenceError):
+                    report_speech_evidence_error()
+                    clear_frontend_transcript()
                 if interrupt_capture_mode and interrupt_capture_turn_id:
                     emit_from_thread({"type": "audio_resume", "turn_id": interrupt_capture_turn_id})
                 reset_partial_state()

@@ -156,6 +156,8 @@ class VoiceLatencyTests(unittest.TestCase):
                'lock_for_stt': lambda e: model_lock, 'stt_backend': engine,
                'TARGET_SR': 16000, 'STT_LANGUAGE': 'en', 'time': time, 'os': os,
                'Timer': Timer, 'is_unusable_stt_text': lambda text: False,
+               'speech_audio': lambda audio, sample_rate: audio, 'SpeechEvidenceError': RuntimeError,
+               'report_speech_evidence_error': lambda: None,
                'emit_from_thread': emitted.append}
         load_method_nodes(ROOT / 'frontend_api.py', ['run_partial_transcription', 'transcribe_final_timed'], env)
         audio = np.zeros(8000, dtype=np.float32)
