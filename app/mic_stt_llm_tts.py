@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import argparse
 import queue
+from contextlib import nullcontext
 import threading
 import time
 import uuid
@@ -1207,6 +1208,10 @@ def run_llm_tts_pipeline(
     min_comma_chars=60,
     first_min_sentence_chars=28 if getattr(args, "browser_audio", False) else None,
     first_min_comma_chars=50 if getattr(args, "browser_audio", False) else None,
+    # Get the second aligned segment ready while the first is playing. Later
+    # segments retain the longer target for more natural phrasing.
+    second_target_chars=110 if getattr(args, "browser_audio", False) else None,
+    second_max_chars=150 if getattr(args, "browser_audio", False) else None,
     max_chars=args.chunk_later,
     max_wait_s=args.chunk_wait,
     )
@@ -1625,52 +1630,57 @@ def run_llm_tts_pipeline(
                         continue
                     yield event
 
-            def run_streaming_tts():
-                try:
-                    if getattr(args, "browser_audio", False):
-                        # Each web streaming engine accepts one flushed text
-                        # segment per request. Associate it with the first PCM
-                        # packet to preserve playback-synchronized text.
-                        for text_event in queued_text_events():
-                            if playback.interrupted.is_set():
-                                break
-                            text = text_event.text
-                            if not text:
-                                continue
-                            if not any(char.isalnum() for char in text):
-                                if align_in_parallel:
-                                    queue_for_alignment((text, None, None))
-                                else:
-                                    emit({"type": "audio_text", "turn_id": evaluation_turn_id, "text": text})
-                                continue
-                            first_packet = True
-                            audio_parts = []
-                            segment_sample_rate = None
-                            for chunk_np, sr in tts_engine.stream_text(
-                                [text_event], voice_prompt=voice_prompt, config=None,
-                            ):
-                                if playback.interrupted.is_set():
-                                    break
-                                if word_aligner is not None:
-                                    if segment_sample_rate is not None and segment_sample_rate != sr:
-                                        raise RuntimeError("Sample rate changed within a speech segment")
-                                    segment_sample_rate = sr
-                                    audio_parts.append(chunk_np)
-                                else:
-                                    enqueue_audio_chunk(chunk_np, sr, chunk_text=text if first_packet else None)
-                                first_packet = False
-                            if first_packet and not playback.interrupted.is_set():
-                                raise RuntimeError("TTS returned no audio for a text segment")
-                            if word_aligner is not None and audio_parts and not playback.interrupted.is_set():
-                                audio = np.concatenate(audio_parts, axis=0)
-                                queue_for_alignment((text, audio, segment_sample_rate))
-                    else:
+            def generate_streaming_tts():
+                if getattr(args, "browser_audio", False):
+                    # Each web streaming engine accepts one flushed text
+                    # segment per request. Associate it with the first PCM
+                    # packet to preserve playback-synchronized text.
+                    for text_event in queued_text_events():
+                        if playback.interrupted.is_set():
+                            break
+                        text = text_event.text
+                        if not text:
+                            continue
+                        if not any(char.isalnum() for char in text):
+                            if align_in_parallel:
+                                queue_for_alignment((text, None, None))
+                            else:
+                                emit({"type": "audio_text", "turn_id": evaluation_turn_id, "text": text})
+                            continue
+                        first_packet = True
+                        audio_parts = []
+                        segment_sample_rate = None
                         for chunk_np, sr in tts_engine.stream_text(
-                            queued_text_events(), voice_prompt=voice_prompt, config=None,
+                            [text_event], voice_prompt=voice_prompt, config=None,
                         ):
                             if playback.interrupted.is_set():
                                 break
-                            enqueue_audio_chunk(chunk_np, sr)
+                            if word_aligner is not None:
+                                if segment_sample_rate is not None and segment_sample_rate != sr:
+                                    raise RuntimeError("Sample rate changed within a speech segment")
+                                segment_sample_rate = sr
+                                audio_parts.append(chunk_np)
+                            else:
+                                enqueue_audio_chunk(chunk_np, sr, chunk_text=text if first_packet else None)
+                            first_packet = False
+                        if first_packet and not playback.interrupted.is_set():
+                            raise RuntimeError("TTS returned no audio for a text segment")
+                        if word_aligner is not None and audio_parts and not playback.interrupted.is_set():
+                            audio = np.concatenate(audio_parts, axis=0)
+                            queue_for_alignment((text, audio, segment_sample_rate))
+                else:
+                    for chunk_np, sr in tts_engine.stream_text(
+                        queued_text_events(), voice_prompt=voice_prompt, config=None,
+                    ):
+                        if playback.interrupted.is_set():
+                            break
+                        enqueue_audio_chunk(chunk_np, sr)
+
+            def run_streaming_tts():
+                try:
+                    session_factory = getattr(tts_engine, "streaming_session", None)
+                    with session_factory() if callable(session_factory) else nullcontext():
+                        generate_streaming_tts()
                 except Exception as exc:
                     fail_speech_worker(exc)
                 finally:

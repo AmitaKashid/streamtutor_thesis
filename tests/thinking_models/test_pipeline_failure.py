@@ -1,5 +1,6 @@
 """Exercise the real pipeline failure path without model/audio dependencies."""
 import ast
+from contextlib import nullcontext
 import queue
 import threading
 import time
@@ -18,6 +19,7 @@ def load_pipeline():
     module = ast.Module(body=[ast.ImportFrom(module='__future__', names=[ast.alias(name='annotations')], level=0), function], type_ignores=[])
     env = {
         'uuid': uuid, 'threading': threading, 'queue': queue, 'perf_counter': time.perf_counter,
+        'nullcontext': nullcontext,
         'HALLUCINATION_PHRASES': set(), 'print_effective_config': lambda args: None,
         'effective_config_payload': lambda args: {}, 'compose_prompt': lambda **kw: kw['user_query'],
         'start_terminal_dots': lambda *a: (threading.Event(), types.SimpleNamespace(join=lambda **kw: None)),

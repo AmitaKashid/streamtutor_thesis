@@ -164,6 +164,22 @@ class VoiceLatencyTests(unittest.TestCase):
         self.assertEqual(chunks, ['A decision tree makes predictions.'])
         self.assertEqual(chunker.flush(), 'Next sentence.')
 
+    def test_second_segment_can_be_ready_before_a_long_later_segment(self):
+        cfg = ProsodyChunkerConfig(first_min_sentence_chars=20, first_target_chars=70,
+                                   second_target_chars=110, second_max_chars=150,
+                                   later_target_chars=180, max_chars=220, max_wait_s=.3)
+        with patch('llm.llmcli.common.prosody_chunker.time.perf_counter', return_value=10):
+            chunker = ProsodyChunker(cfg)
+            first = list(chunker.feed(['This is the first short sentence.']))
+            self.assertEqual(first, ['This is the first short sentence.'])
+            # With no punctuation and no timer advance, the special second max
+            # is still lower than the ordinary later max.
+            words = 'word ' * 34
+            second = list(chunker.feed([words]))
+            self.assertEqual(len(second), 1)
+            self.assertLess(len(second[0]), 150)
+            self.assertGreater(len(chunker.flush()), 0)
+
     def test_vad_reset_discards_active_speech_and_preroll(self):
         tree = ast.parse((ROOT / 'stt/vad_segmenter.py').read_text())
         nodes = [copy.deepcopy(n) for n in tree.body if isinstance(n, ast.ClassDef)]

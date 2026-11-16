@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import base64
 import json
+import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Iterator, Optional, Tuple
@@ -30,6 +32,26 @@ class Qwen3StreamingEngine(BaseTTSEngine):
     def __init__(self, cfg: Optional[Qwen3StreamingConfig] = None) -> None:
         self.cfg = cfg or Qwen3StreamingConfig()
         self._cancel_event = None
+        self._session = threading.local()
+
+    @contextmanager
+    def streaming_session(self):
+        """Reuse one socket for ordered segments in this synthesis thread."""
+        if getattr(self._session, "active", False):
+            raise RuntimeError("Nested Qwen streaming sessions are not supported")
+        self._session.active = True
+        self._session.socket = None
+        try:
+            yield
+        finally:
+            sock = self._session.socket
+            self._session.socket = None
+            self._session.active = False
+            if sock is not None:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
 
     def set_cancel_event(self, event) -> None:
         self._cancel_event = event
@@ -71,13 +93,16 @@ class Qwen3StreamingEngine(BaseTTSEngine):
         language = getattr(cfg, "language", self.cfg.language)
         chunk_size = getattr(cfg, "chunk_size", self.cfg.chunk_size)
 
-        ws = websocket.create_connection(
-            self.cfg.stream_url,
-            timeout=5,
-        )
-        ws.settimeout(0.2)
+        persistent = getattr(self._session, "active", False)
+        ws = getattr(self._session, "socket", None) if persistent else None
+        if ws is None:
+            ws = websocket.create_connection(self.cfg.stream_url, timeout=5)
+            ws.settimeout(0.2)
+            if persistent:
+                self._session.socket = ws
         idle_since = time.monotonic()
         idle_timeout = max(1.0, float(getattr(cfg, "timeout_s", self.cfg.timeout_s)))
+        completed = False
 
         try:
             ws.send(json.dumps({
@@ -126,16 +151,21 @@ class Qwen3StreamingEngine(BaseTTSEngine):
                         f"ttfa={msg.get('ttfa_s')} | "
                         f"rtf={msg.get('rtf')}"
                     )
+                    completed = True
                     break
 
                 if msg_type == "error":
                     raise RuntimeError(msg.get("message", "Unknown Qwen streaming server error."))
 
         finally:
-            try:
-                ws.close()
-            except Exception:
-                pass
+            # A failed, abandoned, or interrupted stream must never be reused.
+            if not persistent or not completed:
+                if persistent:
+                    self._session.socket = None
+                try:
+                    ws.close()
+                except Exception:
+                    pass
 
     def stream_text(
         self,

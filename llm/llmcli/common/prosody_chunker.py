@@ -13,6 +13,8 @@ class ProsodyChunkerConfig:
     min_comma_chars: int = 60
     first_min_sentence_chars: int | None = None
     first_min_comma_chars: int | None = None
+    second_target_chars: int | None = None
+    second_max_chars: int | None = None
     max_chars: int = 260
     max_wait_s: float = 0.5
 
@@ -25,15 +27,19 @@ class ProsodyChunker:
         self.cfg = cfg
         self._buf = ""
         self._started = False
+        self._segment_count = 0
         self._last_flush_t = time.perf_counter()
 
     def _target_chars(self) -> int:
+        if self._segment_count == 1 and self.cfg.second_target_chars is not None:
+            return self.cfg.second_target_chars
         return self.cfg.later_target_chars if self._started else self.cfg.first_target_chars
 
     def _flush(self) -> str:
         text = self._buf.strip()
         self._buf = ""
         self._started = True
+        self._segment_count += 1
         self._last_flush_t = time.perf_counter()
         return text
 
@@ -58,7 +64,9 @@ class ProsodyChunker:
         buf_len = len(self._buf.strip())
         age = time.perf_counter() - self._last_flush_t
 
-        if buf_len >= self.cfg.max_chars:
+        max_chars = (self.cfg.second_max_chars if self._segment_count == 1
+                     and self.cfg.second_max_chars is not None else self.cfg.max_chars)
+        if buf_len >= max_chars:
             return True
 
         if buf_len >= self._target_chars() and age >= self.cfg.max_wait_s:
@@ -88,6 +96,7 @@ class ProsodyChunker:
                         rest = candidate[split_idx + 1:].strip()
                         self._buf = rest
                         self._started = True
+                        self._segment_count += 1
                         self._last_flush_t = time.perf_counter()
                         if out:
                             yield out

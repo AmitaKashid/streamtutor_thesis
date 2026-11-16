@@ -1,7 +1,9 @@
 """Do not silently accept a disconnected or indefinitely stalled TTS stream."""
 import ast
 import base64
+from contextlib import contextmanager
 import json
+import threading
 import types
 import unittest
 from pathlib import Path
@@ -15,9 +17,9 @@ class SocketTimeout(Exception):
 
 def make_engine(messages, clock):
     class Socket:
-        def __init__(self): self.closed = False
+        def __init__(self): self.closed = False; self.sent = []
         def settimeout(self, value): pass
-        def send(self, value): pass
+        def send(self, value): self.sent.append(json.loads(value))
         def recv(self):
             item = messages.pop(0)
             if isinstance(item, Exception): raise item
@@ -30,13 +32,32 @@ def make_engine(messages, clock):
     module = ast.Module(body=[ast.ImportFrom(module='__future__', names=[ast.alias(name='annotations')], level=0), cls], type_ignores=[])
     env = {'websocket': types.SimpleNamespace(create_connection=lambda *a, **kw: socket),
            'WebSocketTimeoutException': SocketTimeout, 'time': types.SimpleNamespace(monotonic=lambda: next(clock)),
-           'np': np, 'json': json, 'base64': base64}
+           'np': np, 'json': json, 'base64': base64, 'threading': threading,
+           'contextmanager': contextmanager}
     exec(compile(ast.fix_missing_locations(module), '<qwen-stream>', 'exec'), env)
     cfg = types.SimpleNamespace(stream_url='ws://test', speaker='Aiden', language='en', chunk_size=4, timeout_s=1)
     return env['Qwen3StreamingEngine'](cfg), socket, cfg
 
 
 class QwenCompletionTests(unittest.TestCase):
+    def test_two_successful_segments_share_socket_only_inside_session(self):
+        done = json.dumps({'type': 'audio_done'})
+        engine, socket, cfg = make_engine([done, done], iter([0., .1, .2, .3]))
+        with engine.streaming_session():
+            self.assertEqual(list(engine._stream_one_text('First', cfg)), [])
+            self.assertFalse(socket.closed)
+            self.assertEqual(list(engine._stream_one_text('Second', cfg)), [])
+            self.assertFalse(socket.closed)
+        self.assertTrue(socket.closed)
+        self.assertEqual([item['text'] for item in socket.sent], ['First', 'Second'])
+
+    def test_failed_segment_closes_persistent_socket(self):
+        engine, socket, cfg = make_engine([''], iter([0.]))
+        with engine.streaming_session():
+            with self.assertRaisesRegex(RuntimeError, 'disconnected before completing'):
+                list(engine._stream_one_text('hello', cfg))
+            self.assertTrue(socket.closed)
+
     def test_stalled_stream_times_out_and_closes(self):
         engine, socket, cfg = make_engine([SocketTimeout()], iter([0., 1.1]))
         with self.assertRaisesRegex(TimeoutError, 'no data'):
