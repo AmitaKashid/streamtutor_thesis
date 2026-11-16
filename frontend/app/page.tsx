@@ -138,6 +138,7 @@ type ServerEvent =
   | { type: "audio_chunk"; turn_id: string; data: string; sample_rate: number; channels: number; text?: string | null; word_timings?: Array<{text: string; start: number; end: number}> | null }
   | { type: "audio_text"; turn_id: string; text: string }
   | { type: "alignment_warning"; turn_id: string }
+  | { type: "generation_warning"; turn_id: string; message: string }
   | { type: "audio_pause" | "audio_resume"; turn_id: string }
   | { type: "audio_done"; turn_id: string }
   | { type: "text_complete"; turn_id: string; text: string }
@@ -301,6 +302,7 @@ function useTutorSocket(url: string) {
   const [pendingTextDelivery, setPendingTextDelivery] = useState<{turnId: string; messageId: string; text: string} | null>(null);
   const [partialText, setPartialText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [generationWarning, setGenerationWarning] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const metricsLedgerRef = useRef(createMetricsLedger());
 
@@ -493,6 +495,7 @@ function useTutorSocket(url: string) {
             return;
           }
           if (data.type === "tutor_turn_started") {
+            setGenerationWarning(null);
             // Never mark the prior turn delivered when a new turn starts.
             if (playbackTurnIdRef.current &&
                 playbackTurnIdRef.current !== data.turn_id) {
@@ -568,6 +571,12 @@ function useTutorSocket(url: string) {
           if (data.type === "alignment_warning") {
             if (data.turn_id !== playbackTurnIdRef.current || stoppedRef.current) return;
             setError("Word timing was unavailable for part of this answer. That text will appear after its speech.");
+            return;
+          }
+
+          if (data.type === "generation_warning") {
+            if (data.turn_id !== playbackTurnIdRef.current || stoppedRef.current) return;
+            setGenerationWarning(data.message);
             return;
           }
 
@@ -826,6 +835,7 @@ function useTutorSocket(url: string) {
     capturedText,
     partialText,
     error,
+    generationWarning,
     send,
     resetTurnMetrics,
     setStage,
@@ -1874,6 +1884,7 @@ export default function Page() {
     capturedText,
     partialText,
     error,
+    generationWarning,
     send,
     resetTurnMetrics,
     setStage,
@@ -2214,6 +2225,17 @@ export default function Page() {
               </section>
 
               <AnimatePresence>
+                {generationWarning ? (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 8 }}
+                    role="status"
+                    className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800"
+                  >
+                    {generationWarning}
+                  </motion.div>
+                ) : null}
                 {error ? (
                   <motion.div
                     initial={{ opacity: 0, y: 8 }}

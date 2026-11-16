@@ -248,7 +248,7 @@ def build_llm(args):
 
     temp = 0.2
     top_p = 0.9
-    n_ctx = 2048
+    n_ctx = 4096 if model_key.startswith("llama3_") else 2048
 
     if "qwen" in model_key:
         temp = 0.6
@@ -275,7 +275,7 @@ def build_llm(args):
     n_ubatch=512,
     flash_attn=True,
     offload_kqv=True,
-    max_new_tokens=360,
+    max_new_tokens=1024 if model_key.startswith("llama3_") else 360,
     temperature=temp,
     top_p=top_p,
     seed=0,
@@ -1203,6 +1203,13 @@ def run_llm_tts_pipeline(
     llm_stream_done_t = None
     thinking_time_s = None
     thinking_gap_s = None
+    generation_truncated = False
+
+    def record_truncated_response():
+        nonlocal generation_truncated
+        generation_truncated = True
+        emit({"type": "generation_warning", "turn_id": evaluation_turn_id,
+              "message": "The model reached its response limit, so this answer is incomplete. Ask a follow-up to continue."})
 
     def record_thinking_time(seconds):
         nonlocal thinking_time_s
@@ -1332,6 +1339,12 @@ def run_llm_tts_pipeline(
                     on_thinking_gap=record_thinking_gap,
                     on_thinking_preview=preview_thinking_time,
                     on_server_metrics=lambda metrics: emit({"type": "metrics", "data": metrics}),
+                )
+            elif hasattr(llm, "stream_with_status"):
+                stream = llm.stream_with_status(
+                    llm_prompt,
+                    on_server_metrics=lambda metrics: emit({"type": "metrics", "turn_id": evaluation_turn_id, "data": metrics}),
+                    on_truncated=record_truncated_response,
                 )
             elif hasattr(llm, "stream_with_metrics"):
                 stream = llm.stream_with_metrics(
@@ -1852,7 +1865,8 @@ def run_llm_tts_pipeline(
     finally:
         response_status = (
             "failed" if pipeline_failed else
-            "interrupted" if playback.interrupted.is_set() else "completed"
+            "interrupted" if playback.interrupted.is_set() else
+            "incomplete" if generation_truncated else "completed"
         )
         if pipeline_failed and audio_out is not None:
             try:
@@ -1941,6 +1955,8 @@ def run_llm_tts_pipeline(
     ):
         if response_status == "completed":
             memory_answer = final_answer
+        elif response_status == "incomplete":
+            memory_answer = "[The model stopped at its output limit; this answer is incomplete:]\n" + final_answer
         elif not tts_enabled:
             memory_answer = "[The assistant response was interrupted after this partial text:]\n" + final_answer
         else:
@@ -1974,14 +1990,14 @@ def run_llm_tts_pipeline(
 
     # Queue evaluation after playback status has been captured.
     offer_evaluation_candidate(
-        final_answer, generation_completed=llm_stream_done_t is not None, response_status=response_status
+        final_answer, generation_completed=llm_stream_done_t is not None and not generation_truncated, response_status=response_status
     )
     if not tts_enabled and response_status == "completed" and llm_stream_done_t is not None and final_answer:
         emit({"type": "text_complete", "turn_id": evaluation_turn_id, "text": final_answer})
     enqueue_seconds = None
     task_id = None
     # Legacy text evaluation is submitted by the delivery acknowledgement handler.
-    if final_answer and judge is not None and tts_enabled:
+    if final_answer and judge is not None and tts_enabled and not generation_truncated:
         enqueue_started = perf_counter()
         task_id = judge.judge_and_log_async(
             turn_id=evaluation_turn_id,

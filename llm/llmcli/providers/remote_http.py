@@ -85,11 +85,15 @@ class RemoteHTTPProvider(LLMProvider):
         yield from self.stream_with_metrics(user_text)
 
     def stream_with_metrics(self, user_text: str, on_server_metrics=None) -> Iterator[str]:
+        yield from self.stream_with_status(user_text, on_server_metrics=on_server_metrics)
+
+    def stream_with_status(self, user_text: str, on_server_metrics=None, on_truncated=None) -> Iterator[str]:
         """Consume NDJSON; old servers remain supported but cannot verify success."""
         with requests.post(self._url("/stream"), json={"prompt": user_text},
                            timeout=(self.connect_timeout, self.read_timeout), stream=True) as resp:
             resp.raise_for_status()
             done = False
+            saw_text = False
             for line in iter_stream_lines(resp):
                 if not line:
                     continue
@@ -99,13 +103,19 @@ class RemoteHTTPProvider(LLMProvider):
                 if data.get('done'):
                     done = True
                     reason = data.get('finish_reason')
+                    if reason == 'length' and saw_text and on_truncated is not None:
+                        on_truncated()
+                        break
                     if reason and reason != 'stop':
+                        if reason == 'length':
+                            raise RuntimeError('The model reached its output limit before completing the answer.')
                         raise RuntimeError(f'Remote model generation ended: {reason}')
                     if reason == 'stop' and on_server_metrics and isinstance(data.get('metrics'), dict):
                         on_server_metrics(data['metrics'])
                     break
                 delta = data.get('delta')
                 if delta:
+                    saw_text = saw_text or bool(str(delta).strip())
                     yield delta
             if not done:
                 raise RuntimeError('Remote model stream ended without completion')

@@ -51,9 +51,24 @@ class LegacyNativeMetricsTests(unittest.TestCase):
         bad = Response([b'{"delta":"partial"}', b'{"done":true,"finish_reason":"length","metrics":{"legacyBatchedEvalSeconds":0.3}}'])
         seen.clear()
         with patch('llm.llmcli.providers.remote_http.requests.post', return_value=bad):
-            with self.assertRaisesRegex(RuntimeError, 'length'):
+            with self.assertRaisesRegex(RuntimeError, 'output limit'):
                 list(RemoteHTTPProvider('http://test').stream_with_metrics('q', seen.append))
         self.assertEqual(seen, [])
+
+    def test_length_with_content_is_explicitly_reported_without_throwing_away_text(self):
+        seen, truncated = [], []
+        response = Response([b'{"delta":"partial answer"}', b'{"done":true,"finish_reason":"length","metrics":{"legacyBatchedEvalSeconds":0.3}}'])
+        with patch('llm.llmcli.providers.remote_http.requests.post', return_value=response):
+            result = ''.join(RemoteHTTPProvider('http://test').stream_with_status('q', seen.append, lambda: truncated.append(True)))
+        self.assertEqual(result, 'partial answer')
+        self.assertEqual(truncated, [True])
+        self.assertEqual(seen, [])
+
+    def test_length_without_answer_is_still_a_failure(self):
+        response = Response([b'{"done":true,"finish_reason":"length"}'])
+        with patch('llm.llmcli.providers.remote_http.requests.post', return_value=response):
+            with self.assertRaisesRegex(RuntimeError, 'output limit'):
+                list(RemoteHTTPProvider('http://test').stream_with_status('q', on_truncated=lambda: None))
 
     def test_pipeline_forwards_metrics_from_the_current_stream(self):
         import threading, time

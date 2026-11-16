@@ -1,0 +1,7 @@
+# Remote tutor response limits
+
+The legacy remote Llama 3 tutor previously defaulted to 360 generated tokens and a 2048-token context. A `finish_reason` of `length` means the server stopped before an ordinary end-of-answer token; it is not a WebSocket error. The Llama 3 defaults are now 1024 generated tokens and a 4096-token context, with explicit `--max-new-tokens` and `--n-ctx` overrides still honored. The larger context can use additional memory, so check GPU capacity before deploying. Judge and other model defaults are unchanged.
+
+The running remote server will continue using its old settings and code until the changed `app/remote_llm_server.py` is deployed to the cluster and that model job is restarted. Restarting only the browser or frontend API does not change the remote job. If the limit is still reached, the client preserves and plays the available text, marks it incomplete, and shows a warning. It does not automatically fabricate a continuation or mark the response as complete. Other stream errors remain failures. The output cap and context are finite, so long prompts or answers can still be cut off.
+
+The `[Qwen3Streaming] cancelled; closing stream socket` message is emitted when a cancellation flag is set, including interruption or failure. An accepted or closed WebSocket connection by itself is a normal lifecycle log; examine the surrounding events to identify an unexpected disconnection.

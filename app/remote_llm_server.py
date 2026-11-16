@@ -43,6 +43,12 @@ def build_llm(
     n_ctx = 2048
     max_new_tokens = 360
 
+    # Llama tutor responses need room for a full explanation as well as the
+    # course/context prompt. Preserve judge and experimental defaults.
+    if k.startswith("llama3_"):
+        n_ctx = 4096
+        max_new_tokens = 1024
+
     if "qwen" in k:
         temp = 0.6
         top_p = 0.95
