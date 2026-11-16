@@ -866,7 +866,8 @@ def run_llm_tts_pipeline(
                     )]
                 ],
             })
-            emit({"type": "metrics", "data": {"ragLatency": rag_time}})
+        # A valid retrieval that returns no hits still has a measured latency.
+        emit({"type": "metrics", "data": {"ragLatency": rag_time}})
 
         if args.rag_print_context:
             if args.rag_context_chars == 0:

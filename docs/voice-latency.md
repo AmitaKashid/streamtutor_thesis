@@ -18,6 +18,8 @@ The displayed `STT latency` is final STT plus model-lock wait; it excludes the u
 
 The restored pie chart shows only the separate measured STT, answer TTFT, and TTS preparation intervals, not a breakdown of total response time. Endpoint silence, retrieval, text accumulation before the first TTS segment, and other gaps are omitted. Thinking and first-audio timings remain in the list but are excluded from the pie because they overlap the slices.
 
+Frontend metric records are keyed by the immutable tutor turn ID. A transcript event does not reset a started turn, and a late metric updates its own completed row rather than another turn. The TTFT chart uses prompt characters consistently; it omits turns without a measured prompt size rather than substituting conversation-history length. Server token and decode counters are shown only when the active model server actually reports comparable values; a dash is not zero.
+
 For optional timing logs, set `LLMTUTOR_LATENCY_DIAGNOSTICS=1` in the environment **before starting the backend**. `[PARTIAL STT TIMING]`, `[FINAL STT TIMING]` and `[ALIGNMENT TIMING]` report audio duration, lock wait, and inference wall time without printing transcript text. Qwen server logs provide synthesis timing. Browser developer tools show `[AUDIO UNDERRUN]` when a segment starts more than 50 ms after the previous scheduled end. `[WORD ALIGNMENT WARNING]`, `[TUTOR PIPELINE ERROR]`, and `[BARGE-IN]` distinguish some failure and interruption paths. These logs do not measure device playback or front-end display latency.
 
 ## Acceptance and measurement
