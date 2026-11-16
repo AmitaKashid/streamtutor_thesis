@@ -32,8 +32,12 @@ class Utterance:
 
 class VADSegmenter:
     """Turn fixed 20ms frames into utterances using WebRTC VAD, with pre-roll."""
-    def __init__(self, aggressiveness: int = 2, pre_roll_ms: int = PRE_ROLL_MS):
+    def __init__(self, aggressiveness: int = 2, pre_roll_ms: int = PRE_ROLL_MS,
+                 silence_ms: int = MAX_SILENCE_MS):
         self.vad = webrtcvad.Vad(aggressiveness)
+        if silence_ms < FRAME_MS:
+            raise ValueError("silence_ms must be at least one VAD frame")
+        self.silence_ms = silence_ms
         self.pre = deque(maxlen=max(1, pre_roll_ms // FRAME_MS))  # frames of int16
         self.buffer: List[np.ndarray] = []
         self.in_speech = False
@@ -69,7 +73,7 @@ class VADSegmenter:
                 self.ms_in_buffer += FRAME_MS
 
         time_limit_hit = self.ms_in_buffer >= MAX_UTTERANCE_MS
-        silence_hit = self.in_speech and self.trailing_silence_ms >= MAX_SILENCE_MS
+        silence_hit = self.in_speech and self.trailing_silence_ms >= self.silence_ms
 
         if self.in_speech and (silence_hit or time_limit_hit):
             audio = np.concatenate(self.buffer, axis=0) if self.buffer else np.array([], dtype=np.int16)
