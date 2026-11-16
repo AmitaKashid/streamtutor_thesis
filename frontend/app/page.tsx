@@ -32,6 +32,7 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import { idleResponse, responseActivity, responseIsActive } from "./response-activity.mjs";
 import { createSynchronizedPlayback } from "./synchronized-playback.mjs";
+import { createMetricsLedger } from "./metrics-ledger.mjs";
 import { TutorMarkdown } from "./tutor-markdown";
 import { createAudioResampler } from "./audio-resampler.mjs";
 
@@ -95,6 +96,7 @@ interface MetricState {
 
 interface TurnMetricRecord {
   turn: number;
+  turnId: string;
   metrics: MetricState;
 }
 
@@ -348,8 +350,7 @@ function useTutorSocket(url: string) {
   const [partialText, setPartialText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const currentTurnMetricsRef = useRef<MetricState>({});
-  const hasRecordedCurrentTurnRef = useRef(false);
+  const metricsLedgerRef = useRef(createMetricsLedger());
 
 
   const playbackContextRef = useRef<AudioContext | null>(null);
@@ -550,9 +551,7 @@ function useTutorSocket(url: string) {
             updateResponse({ type: "start", audio: data.delivery_mode === "audio" });
             const turnModel = data.model ?? null;
             // Each turn starts with a clean record, including voice and barge-in turns.
-            currentTurnMetricsRef.current = { model: turnModel, thinkingTime: null, llmAnswerTime: null };
-            hasRecordedCurrentTurnRef.current = false;
-            setMetrics({ model: turnModel, thinkingTime: null, llmAnswerTime: null });
+            setMetrics(metricsLedgerRef.current.start(data.turn_id, turnModel));
             deliveryModeRef.current = data.delivery_mode;
             receivedAudioRef.current = false;
             stoppedRef.current = responseStateRef.current.cancelling;
@@ -562,8 +561,7 @@ function useTutorSocket(url: string) {
           if (data.type === "text_interrupted") {
             if (data.turn_id === playbackTurnIdRef.current) {
               stoppedRef.current = true;
-              currentTurnMetricsRef.current = { ...currentTurnMetricsRef.current, thinkingTime: null, llmAnswerTime: null };
-              setMetrics((prev) => ({ ...prev, thinkingTime: null, llmAnswerTime: null }));
+              setMetrics(metricsLedgerRef.current.update(data.turn_id, { thinkingTime: null, llmAnswerTime: null }));
             }
             return;
           }
@@ -633,8 +631,7 @@ function useTutorSocket(url: string) {
               if (data.reason === "microphone") console.info("[AUDIO STOP] Microphone voice activity detected.");
               stopBrowserAudio(data.turn_id);
               if (responseStateRef.current.generating) {
-                currentTurnMetricsRef.current = { ...currentTurnMetricsRef.current, thinkingTime: null, llmAnswerTime: null };
-                setMetrics((prev) => ({ ...prev, thinkingTime: null, llmAnswerTime: null }));
+                setMetrics(metricsLedgerRef.current.update(data.turn_id, { thinkingTime: null, llmAnswerTime: null }));
               }
               updateResponse({ type: "audio_done" });
             }
@@ -686,10 +683,6 @@ function useTutorSocket(url: string) {
               return;
             }
             if (text) {
-              currentTurnMetricsRef.current = {};
-              hasRecordedCurrentTurnRef.current = false;
-              setMetrics({});
-
               setMessages((prev) => [
                 ...prev,
                 {
@@ -714,10 +707,6 @@ function useTutorSocket(url: string) {
               return;
             }
             if (text) {
-              currentTurnMetricsRef.current = {};
-              hasRecordedCurrentTurnRef.current = false;
-              setMetrics({});
-
               setMessages((prev) => [
                 ...prev,
                 {
@@ -740,8 +729,7 @@ function useTutorSocket(url: string) {
                 !Number.isFinite(data.seconds) || data.seconds < 0) return;
             const update: MetricState = data.type === "thinking_preview"
               ? { thinkingTime: data.seconds } : { llmAnswerTime: data.seconds };
-            currentTurnMetricsRef.current = { ...currentTurnMetricsRef.current, ...update };
-            setMetrics((prev) => ({ ...prev, ...update }));
+            setMetrics(metricsLedgerRef.current.update(data.turn_id, update));
             return;
           }
 
@@ -770,31 +758,15 @@ function useTutorSocket(url: string) {
 
           if (data.type === "assistant_done") {
             // Completion from an interrupted older turn must not end a newer turn.
+            if (data.turn_id) {
+              metricsLedgerRef.current.finish(data.turn_id);
+              setMetricHistory(metricsLedgerRef.current.history());
+            }
             if (data.turn_id && playbackTurnIdRef.current && data.turn_id !== playbackTurnIdRef.current) return;
             if (data.turn_id && !playbackTurnIdRef.current && !responseStateRef.current.cancelling) return;
             updateResponse({ type: "generation_done" });
             if (data.turn_id && (deliveryModeRef.current === "text" || stoppedRef.current)) {
               finishAssistantMessage(data.turn_id);
-            }
-
-            const completedMetrics: MetricState = {
-              ...currentTurnMetricsRef.current,
-            };
-
-            const hasAnyMetric = Object.values(completedMetrics).some(
-              (value) => value !== undefined && value !== null,
-            );
-
-            if (hasAnyMetric && !hasRecordedCurrentTurnRef.current) {
-              hasRecordedCurrentTurnRef.current = true;
-
-              setMetricHistory((hist) => [
-                ...hist,
-                {
-                  turn: hist.length + 1,
-                  metrics: completedMetrics,
-                },
-              ]);
             }
 
             setStage("idle");
@@ -807,34 +779,19 @@ function useTutorSocket(url: string) {
           }
 
           if (data.type === "metrics") {
-            // Late metrics from a stopped or superseded turn must not affect this row.
-            if (!data.turn_id || data.turn_id !== playbackTurnIdRef.current) return;
-            const incoming = data.data;
-
-            // Record immediately: assistant_done can arrive before React runs
-            // a queued state updater, especially for short text-only turns.
-            const previousTurn = currentTurnMetricsRef.current;
-            currentTurnMetricsRef.current = {
-              ...previousTurn,
-              ...incoming,
-              stt: incoming.stt !== undefined && incoming.stt > 0
-                ? incoming.stt
-                : previousTurn.stt,
-            };
-            setMetrics((prev) => ({
-              ...prev,
-              ...incoming,
-              stt: incoming.stt !== undefined && incoming.stt > 0
-                ? incoming.stt
-                : prev.stt,
-            }));
+            if (!data.turn_id) return;
+            const updated = metricsLedgerRef.current.update(data.turn_id, data.data);
+            // A late event updates its original history row, never the current turn.
+            setMetricHistory(metricsLedgerRef.current.history());
+            if (data.turn_id === playbackTurnIdRef.current) setMetrics(updated);
 
             return;
           }
 
           if (data.type === "error") {
-            currentTurnMetricsRef.current = { ...currentTurnMetricsRef.current, thinkingTime: null, llmAnswerTime: null };
-            setMetrics((prev) => ({ ...prev, thinkingTime: null, llmAnswerTime: null }));
+            if (playbackTurnIdRef.current) {
+              setMetrics(metricsLedgerRef.current.update(playbackTurnIdRef.current, { thinkingTime: null, llmAnswerTime: null }));
+            }
             stopBrowserAudio();
             updateResponse({ type: "reset" });
             setError(data.message);
@@ -897,8 +854,6 @@ function useTutorSocket(url: string) {
   };
 
   const resetTurnMetrics = () => {
-    currentTurnMetricsRef.current = {};
-    hasRecordedCurrentTurnRef.current = false;
     setMetrics({});
   };
 
@@ -1785,14 +1740,15 @@ function LatencyCharts({ metrics, history }: { metrics: MetricState; history: Tu
     && item.available && Number.isFinite(item.value) && item.value > 0,
   );
 
-  const ttftData = history
-    .map((item) => ({
-      turn: item.turn,
-      ttft: item.metrics.ttft ?? 0,
-      contextChars: item.metrics.promptChars ?? item.metrics.conversationChars ?? 0,
+  const ttftData = history.flatMap((item) => {
+    const { ttft, promptChars } = item.metrics;
+    if (ttft == null || !Number.isFinite(ttft) || ttft < 0 ||
+        promptChars == null || !Number.isFinite(promptChars) || promptChars <= 0) return [];
+    return [{
+      turn: item.turn, ttft, promptChars,
       model: LLM_MODELS.find((model) => model.value === item.metrics.model)?.label ?? item.metrics.model ?? "—",
-    }))
-    .filter((x) => x.ttft > 0 && x.contextChars > 0);
+    }];
+  });
   return (
     <section className="flex h-full min-h-0 flex-col rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-blue-700">
@@ -1847,7 +1803,7 @@ function LatencyCharts({ metrics, history }: { metrics: MetricState; history: Tu
               <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-100 text-blue-700" aria-hidden="true">
                 <BarChart3 className="h-4 w-4" />
               </span>
-              <div className="text-sm font-semibold text-slate-900">LLM TTFT vs conversation context</div>
+              <div className="text-sm font-semibold text-slate-900">LLM TTFT vs prompt size</div>
             </div>
             <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-500 ring-1 ring-slate-200">seconds</span>
           </div>
@@ -1857,7 +1813,7 @@ function LatencyCharts({ metrics, history }: { metrics: MetricState; history: Tu
                 <LineChart data={ttftData} margin={{ top: 12, right: 22, bottom: 2, left: 6 }}>
                   <CartesianGrid vertical={false} strokeDasharray="4 5" stroke="#e2e8f0" />
                   <XAxis
-                    dataKey="contextChars"
+                    dataKey="promptChars"
                     type="number"
                     domain={["dataMin", "dataMax"]}
                     tick={{ fontSize: 11, fill: "#64748b" }}
@@ -1888,13 +1844,13 @@ function LatencyCharts({ metrics, history }: { metrics: MetricState; history: Tu
                     cursor={{ stroke: "#93c5fd", strokeDasharray: "4 4", strokeWidth: 1 }}
                     content={({ active, payload }) => {
                       if (!active || !payload?.length) return null;
-                      const point = payload[0]?.payload as { turn: number; ttft: number; contextChars: number; model: string } | undefined;
+                      const point = payload[0]?.payload as { turn: number; ttft: number; promptChars: number; model: string } | undefined;
                       if (!point) return null;
                       return (
                         <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 shadow-lg">
                           <div className="font-semibold text-slate-900">Turn {point.turn} · {point.model}</div>
                           <div className="mt-1">TTFT: <span className="font-semibold tabular-nums text-blue-700">{point.ttft.toFixed(3)} s</span></div>
-                          <div>Context: <span className="font-medium tabular-nums">{point.contextChars.toLocaleString()} chars</span></div>
+                          <div>Prompt: <span className="font-medium tabular-nums">{point.promptChars.toLocaleString()} chars</span></div>
                         </div>
                       );
                     }}
@@ -1914,7 +1870,7 @@ function LatencyCharts({ metrics, history }: { metrics: MetricState; history: Tu
                 </LineChart>
               </ResponsiveContainer>
             </div>
-            <div className="pt-1 text-center text-[11px] font-medium text-slate-500">Prompt / context length (characters)</div>
+            <div className="pt-1 text-center text-[11px] font-medium text-slate-500">Prompt length (characters)</div>
           </div>
         </div>
       </div>
