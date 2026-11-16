@@ -36,6 +36,21 @@ def load_method_nodes(path, names, namespace):
 
 
 class VoiceLatencyTests(unittest.TestCase):
+    def test_preview_warmup_is_registered_at_server_startup(self):
+        tree = ast.parse((ROOT / 'frontend_api.py').read_text(encoding='utf-8'))
+        node = copy.deepcopy(next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                                  and n.name == 'startup_live_preview'))
+        self.assertTrue(any(isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute)
+                            and d.func.attr == 'on_event' and d.args
+                            and isinstance(d.args[0], ast.Constant) and d.args[0].value == 'startup'
+                            for d in node.decorator_list))
+        node.decorator_list = []
+        calls = []
+        env = {'start_preview_backend': lambda: calls.append('start')}
+        exec(compile(ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[])), '<startup>', 'exec'), env)
+        env['startup_live_preview']()
+        self.assertEqual(calls, ['start'])
+
     def test_whisper_alignment_and_stt_share_lock_but_http_stt_does_not(self):
         whisper_lock, http_lock, preview_lock = threading.Lock(), threading.Lock(), threading.Lock()
         preview = types.SimpleNamespace(engine='faster-whisper')
