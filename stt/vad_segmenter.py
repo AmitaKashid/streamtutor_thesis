@@ -28,6 +28,7 @@ class Utterance:
     t_start: float
     t_end: float
     index: int
+    voiced_ms: int = 0
 
 
 class VADSegmenter:
@@ -39,6 +40,7 @@ class VADSegmenter:
         self.in_speech = False
         self.speech_start_ts: Optional[float] = None
         self.trailing_silence_ms = 0
+        self.voiced_ms = 0
         self.ms_in_buffer = 0
         self.utt_index = 0
 
@@ -50,6 +52,7 @@ class VADSegmenter:
             self.pre.append(np.frombuffer(frame_int16, dtype=np.int16))
 
         if is_speech:
+            self.voiced_ms += FRAME_MS
             self.trailing_silence_ms = 0
             if not self.in_speech:
                 # speech start
@@ -76,15 +79,17 @@ class VADSegmenter:
             t_start = self.speech_start_ts if self.speech_start_ts is not None else 0.0
             t_end = frame_ts + FRAME_MS / 1000.0
 
+            voiced_ms = self.voiced_ms
             # reset for next utterance
             self.buffer = []
             self.ms_in_buffer = 0
             self.in_speech = False
             self.trailing_silence_ms = 0
+            self.voiced_ms = 0
             self.speech_start_ts = None
 
             self.utt_index += 1
-            return Utterance(audio=audio, t_start=t_start, t_end=t_end, index=self.utt_index)
+            return Utterance(audio=audio, t_start=t_start, t_end=t_end, index=self.utt_index, voiced_ms=voiced_ms)
 
         return None
 
@@ -92,13 +97,15 @@ class VADSegmenter:
         if not self.buffer:
             return None
         audio = np.concatenate(self.buffer, axis=0)
+        voiced_ms = self.voiced_ms
         self.buffer = []
         self.ms_in_buffer = 0
         self.in_speech = False
         self.trailing_silence_ms = 0
+        self.voiced_ms = 0
         self.speech_start_ts = None
         self.utt_index += 1
-        return Utterance(audio=audio, t_start=0.0, t_end=0.0, index=self.utt_index)
+        return Utterance(audio=audio, t_start=0.0, t_end=0.0, index=self.utt_index, voiced_ms=voiced_ms)
 
     def reset(self):
         """
@@ -113,4 +120,5 @@ class VADSegmenter:
         self.ms_in_buffer = 0
         self.in_speech = False
         self.trailing_silence_ms = 0
+        self.voiced_ms = 0
         self.speech_start_ts = None

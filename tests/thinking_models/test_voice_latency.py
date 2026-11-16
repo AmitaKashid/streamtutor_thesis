@@ -99,7 +99,7 @@ class VoiceLatencyTests(unittest.TestCase):
         self.assertEqual(backend.transcribe_partial(audio, 16000, 'en').text, 'hello')
         self.assertEqual(backend.transcribe(audio, 16000, 'en').text, 'hello')
         self.assertEqual([c['beam_size'] for c in calls], [1, 5])
-        self.assertEqual([c['condition_on_previous_text'] for c in calls], [False, True])
+        self.assertEqual([c['condition_on_previous_text'] for c in calls], [False, False])
 
     def test_short_preview_does_not_delay_first_valid_request(self):
         submitted = []
@@ -140,7 +140,7 @@ class VoiceLatencyTests(unittest.TestCase):
                'session_closed': threading.Event(), 'final_stt_requested': threading.Event(),
                'lock_for_stt': lambda e: model_lock, 'stt_backend': engine,
                'TARGET_SR': 16000, 'STT_LANGUAGE': 'en', 'time': time, 'os': os,
-               'Timer': Timer, 'is_stt_hallucination_text': lambda text: False,
+               'Timer': Timer, 'is_unusable_stt_text': lambda text: False,
                'emit_from_thread': emitted.append}
         load_method_nodes(ROOT / 'frontend_api.py', ['run_partial_transcription', 'transcribe_final_timed'], env)
         audio = np.zeros(8000, dtype=np.float32)

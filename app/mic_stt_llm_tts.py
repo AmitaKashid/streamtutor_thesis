@@ -306,17 +306,6 @@ def drain_queue(q: "queue.Queue[tuple[bytes, float]]") -> int:
         return n
 
 
-HALLUCINATION_PHRASES = {
-    "thanks for watching",
-    "thank you for watching",
-    "like and subscribe",
-    "subscribe to my channel",
-    "see you next time",
-    "thank you",
-    "Bye-bye.",
-    
-}
-
 # ---------------- Strict Built-in Barge-in Policy ----------------
 # This is NOT user-configurable.
 # The system must always allow real user interruption,
@@ -521,12 +510,6 @@ def is_valid_barge_in_text(candidate_text: str, spoken_chunks: list[str]) -> boo
     """
     candidate_text = (candidate_text or "").strip()
     if not candidate_text:
-        return False
-
-    norm = candidate_text.lower().strip(" .!?")
-
-    if norm in HALLUCINATION_PHRASES:
-        print(f"[BARGE-IN FILTER] Rejected known hallucination/echo phrase: {candidate_text}")
         return False
 
     if is_likely_assistant_echo(candidate_text, spoken_chunks):
@@ -768,7 +751,6 @@ def run_llm_tts_pipeline(
     """
     evaluation_turn_id = evaluation_turn_id or f"tutor-{uuid.uuid4().hex}"
     evaluation_conversation_id = conversation_id or f"cli-{uuid.uuid4().hex}"
-    norm = transcript.lower().strip(" .!?")
     playback.reset_interrupt()
     # Preserve a stop request received before this worker acquired the lock.
     if request_cancel_event is not None and request_cancel_event.is_set():
@@ -814,10 +796,6 @@ def run_llm_tts_pipeline(
 
     if len(transcript.split()) < args.min_words:
         print("[STT] Ignored short utterance")
-        return
-
-    if norm in HALLUCINATION_PHRASES:
-        print(f"[STT] Ignored hallucination: '{transcript}'")
         return
 
     is_interrupt = interruption_text is not None

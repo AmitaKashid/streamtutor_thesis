@@ -228,7 +228,9 @@ class FasterWhisperBackend(STTBackend):
             beam_size=1 if preview else self.beam_size,
             vad_filter=False,
             word_timestamps=return_words,
-            condition_on_previous_text=not preview,
+            # Each tutor turn is independent. Do not seed later Whisper windows
+            # with the preceding decoder output, which can reinforce loops.
+            condition_on_previous_text=False,
             initial_prompt=context or None,
             temperature=0.0,
             patience=1.1,
@@ -243,6 +245,15 @@ class FasterWhisperBackend(STTBackend):
         out_segments = []
         text_parts = []
         for s in segments:
+            # Scores are not calibrated probabilities of correctness. Reject
+            # only when both silence and low-confidence signals agree; retain
+            # segments from backends/versions that do not expose both scores.
+            no_speech = getattr(s, "no_speech_prob", None)
+            logprob = getattr(s, "avg_logprob", None)
+            if (no_speech is not None and logprob is not None
+                    and np.isfinite(no_speech) and np.isfinite(logprob)
+                    and no_speech >= 0.6 and logprob < -0.8):
+                continue
             text_parts.append(s.text)
             words_out = None
             if return_words and getattr(s, "words", None):
