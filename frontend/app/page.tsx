@@ -32,6 +32,7 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import { idleResponse, responseActivity, responseIsActive } from "./response-activity.mjs";
 import { createSynchronizedPlayback } from "./synchronized-playback.mjs";
+import { openEchoCancelledMicrophone } from "./microphone-capture.mjs";
 import { TutorMarkdown } from "./tutor-markdown";
 import { createAudioResampler } from "./audio-resampler.mjs";
 
@@ -2153,14 +2154,9 @@ export default function Page() {
     if (config.ttsEnabled) unlockPlayback();
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 1,
-        },
-      });
+      const stream: MediaStream = await openEchoCancelledMicrophone(navigator.mediaDevices);
+      const echoSetting = stream.getAudioTracks()[0]?.getSettings().echoCancellation;
+      console.info("[MIC AEC] echoCancellation:", echoSetting ?? "not reported");
 
       const audioContext = new AudioContext();
       await audioContext.audioWorklet.addModule("/pcm-worklet.js");
@@ -2207,7 +2203,7 @@ export default function Page() {
       setListening(true);
       setCapturedText("");
       setPartialText("");
-      setError(null);
+      setError(echoSetting === false ? "Your browser did not enable microphone echo cancellation." : null);
       setStage("listening");
     } catch (error) {
       console.error("[MIC] Could not start echo-cancelled microphone stream:", error);
