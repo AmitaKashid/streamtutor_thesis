@@ -2,6 +2,7 @@
 import ast
 import contextlib
 import io
+import os
 import threading
 import time
 import types
@@ -62,7 +63,7 @@ class ChunkedTTS:
         return [1], 24000
 
 
-def run_pipeline(mode, tts, *, enabled=True, pieces=None, callback=None, llm=None, chunker=FakeChunker, word_aligner=None):
+def run_pipeline(mode, tts, *, enabled=True, pieces=None, callback=None, llm=None, chunker=FakeChunker, word_aligner=None, immediate=False):
     run = load_pipeline()
     run.__globals__.update({
         'Timer': FakeTimer,
@@ -81,6 +82,7 @@ def run_pipeline(mode, tts, *, enabled=True, pieces=None, callback=None, llm=Non
         min_words=1, tts_enabled=enabled, mode=mode, teaching_style='default',
         chunk_first=80, chunk_mid=100, chunk_later=200, chunk_wait=1,
         browser_audio=True, voice_prompt=None,
+        stream_audio_immediately=immediate,
     )
     events = []
 
@@ -197,6 +199,7 @@ class SpeechTextSegmentsTest(unittest.TestCase):
                      and node.name in {'safe_int', 'build_pipeline_args'}]
         module = ast.Module(body=functions, type_ignores=[])
         env = {
+            'os': os,
             'SimpleNamespace': types.SimpleNamespace,
             'DEFAULT_LLM_MODEL': 'test', 'REMOTE_MODEL_URLS': {'test': 'http://test'},
             'RAG_TOP_K': 2, 'TEACHING_STYLE': 'socratic', 'TTS_BACKEND_NAME': 'kokoro',

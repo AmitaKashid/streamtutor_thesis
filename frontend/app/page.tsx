@@ -135,7 +135,7 @@ type ServerEvent =
   | { type: "barge_in_accepted"; text: string }
   | { type: "tutor_turn_started"; turn_id: string; delivery_mode: "audio" | "text"; model?: string | null }
   | { type: "text_interrupted"; turn_id: string }
-  | { type: "audio_chunk"; turn_id: string; data: string; sample_rate: number; channels: number; text?: string | null; word_timings?: Array<{text: string; start: number; end: number}> | null }
+  | { type: "audio_chunk"; turn_id: string; data: string; sample_rate: number; channels: number; text?: string | null; text_sync?: "segment" | null; word_timings?: Array<{text: string; start: number; end: number}> | null }
   | { type: "audio_text"; turn_id: string; text: string }
   | { type: "alignment_warning"; turn_id: string }
   | { type: "audio_pause" | "audio_resume"; turn_id: string }
@@ -541,7 +541,7 @@ function useTutorSocket(url: string) {
               data.sample_rate,
               data.channels || 1,
             );
-            if (data.text && (!Array.isArray(data.word_timings) || !data.word_timings.length ||
+            if (data.text && data.text_sync !== "segment" && (!Array.isArray(data.word_timings) || !data.word_timings.length ||
                 data.word_timings.map((word) => word.text).join("") !== data.text ||
                 data.word_timings.some((word, index) => !Number.isFinite(word.start) || !Number.isFinite(word.end) ||
                   word.start < 0 || word.end < word.start || word.end > buffer.duration + 0.1 ||

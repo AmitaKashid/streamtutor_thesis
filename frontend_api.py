@@ -585,6 +585,8 @@ def build_pipeline_args(config: dict | None = None):
         thinking_enabled=config.get("thinking_enabled", True) if isinstance(config.get("thinking_enabled", True), bool) else True,
         reasoning_budget_tokens=config.get("reasoning_budget_tokens") if type(config.get("reasoning_budget_tokens")) is int and config.get("reasoning_budget_tokens") in (256, 512, 1024) else None,
         tts_backend=tts_backend,
+        # Keep buffered Whisper timing available for controlled A/B tests.
+        stream_audio_immediately=tts_backend == "qwen3" and os.getenv("LLMTUTOR_QWEN_CAPTIONS", "segment") != "whisper",
         qwen3_speaker=qwen3_speaker,
         qwen3_language=qwen3_language,
 
@@ -1303,7 +1305,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         selected_tts.cfg.language = request_args.qwen3_language
 
                     word_aligner = None
-                    if request_args.tts_enabled:
+                    if request_args.tts_enabled and not request_args.stream_audio_immediately:
                         whisper_backend = get_stt_backend_for_backend("faster-whisper")
                         alignment_language = request_args.qwen3_language if request_args.tts_backend == "qwen3" else STT_LANGUAGE
 
