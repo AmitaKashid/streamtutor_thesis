@@ -63,7 +63,7 @@ class ChunkedTTS:
         return [1], 24000
 
 
-def run_pipeline(mode, tts, *, enabled=True, pieces=None, callback=None, llm=None, chunker=FakeChunker, word_aligner=None, immediate=False, streaming_caption_model=None):
+def run_pipeline(mode, tts, *, enabled=True, pieces=None, callback=None, llm=None, chunker=FakeChunker, word_aligner=None, immediate=False, streaming_caption_model=None, conversation_memory=None, defer_browser_memory=False):
     run = load_pipeline()
     run.__globals__.update({
         'Timer': FakeTimer,
@@ -83,6 +83,7 @@ def run_pipeline(mode, tts, *, enabled=True, pieces=None, callback=None, llm=Non
         chunk_first=80, chunk_mid=100, chunk_later=200, chunk_wait=1,
         browser_audio=True, voice_prompt=None,
         stream_audio_immediately=immediate,
+        conversation_context=conversation_memory is not None,
     )
     events = []
 
@@ -97,7 +98,8 @@ def run_pipeline(mode, tts, *, enabled=True, pieces=None, callback=None, llm=Non
         run(transcript='test question', stt_time=0, total_timer=FakeTimer(), llm=llm,
             tts_engine=tts, retriever=None, args=args, playback=playback,
             pipeline_active=active, judge=None, evaluation_turn_id='turn-1', event_cb=emit,
-            word_aligner=word_aligner, streaming_caption_model=streaming_caption_model)
+            word_aligner=word_aligner, streaming_caption_model=streaming_caption_model,
+            conversation_memory=conversation_memory, defer_browser_memory=defer_browser_memory)
     except Exception as exc:
         exc.events = events
         raise

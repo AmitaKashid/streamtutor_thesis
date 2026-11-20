@@ -56,6 +56,7 @@ interface Message {
   text: string;
   reasoning?: string;
   streaming?: boolean;
+  interrupted?: boolean;
   timestamp: string;
 }
 
@@ -326,14 +327,27 @@ function useTutorSocket(url: string) {
     ws.send(JSON.stringify({ action: "browser_text_finished", turn_id: pendingTextDelivery.turnId }));
   }, [messages, pendingTextDelivery]);
 
-  const finishAssistantMessage = (turnId: string) => {
-    setMessages((prev) => prev.map((message) =>
-      message.id === `assistant_${turnId}` ? { ...message, streaming: false } : message,
-    ));
+  const finishAssistantMessage = (turnId: string, interrupted = false) => {
+    setMessages((prev) => {
+      const id = `assistant_${turnId}`;
+      if (interrupted && !prev.some((message) => message.id === id)) {
+        return [...prev, { id, role: "assistant", text: "", streaming: false,
+          interrupted: true, timestamp: new Date().toLocaleTimeString() }];
+      }
+      return prev.map((message) => message.id === id
+        ? { ...message, streaming: false, interrupted: message.interrupted || interrupted }
+        : message);
+    });
   };
 
   const appendAssistantText = (turnId: string, text: string) => {
     if (turnId !== playbackTurnIdRef.current || stoppedRef.current || !text) return;
+    // The server must not put generated-but-unpresented speech into history.
+    // Progress is sent in WebSocket order before the terminal playback ack.
+    const ws = wsRef.current;
+    if (deliveryModeRef.current === "audio" && ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ action: "browser_caption_progress", turn_id: turnId, text }));
+    }
     const messageId = `assistant_${turnId}`;
     setMessages((prev) => {
       const index = prev.findIndex((message) => message.id === messageId);
@@ -393,11 +407,11 @@ function useTutorSocket(url: string) {
     return buffer;
   };
 
-  const stopBrowserAudio = (turnId?: string) => {
+  const stopBrowserAudio = (turnId?: string, interrupted = responseIsActive(responseStateRef.current)) => {
     const id = turnId || playbackTurnIdRef.current;
     stoppedRef.current = true;
     playbackRef.current?.clear();
-    if (id) finishAssistantMessage(id);
+    if (id) finishAssistantMessage(id, interrupted);
     const ws = wsRef.current;
     if (deliveryModeRef.current === "audio" && id && !notifiedTurnIdsRef.current.has(id) &&
         ws?.readyState === WebSocket.OPEN) {
@@ -565,7 +579,7 @@ function useTutorSocket(url: string) {
                 data.word_timings.some((word, index) => !Number.isFinite(word.start) || !Number.isFinite(word.end) ||
                   word.start < 0 || word.end < word.start || word.end > buffer.duration + 0.1 ||
                   (index > 0 && word.start < data.word_timings![index - 1].start)))) {
-              stopBrowserAudio(data.turn_id);
+              stopBrowserAudio(data.turn_id, true);
               updateResponse({ type: "stop" });
               const ws = wsRef.current;
               if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ action: "interrupt" }));
@@ -602,7 +616,7 @@ function useTutorSocket(url: string) {
           if (data.type === "audio_stop") {
             if (data.turn_id === playbackTurnIdRef.current) {
               if (data.reason === "microphone") console.info("[AUDIO STOP] Microphone voice activity detected.");
-              stopBrowserAudio(data.turn_id);
+              stopBrowserAudio(data.turn_id, true);
               if (responseStateRef.current.generating) {
                 setMetrics(metricsLedgerRef.current.update(data.turn_id, { thinkingTime: null, llmAnswerTime: null }));
               }
@@ -822,7 +836,7 @@ function useTutorSocket(url: string) {
   const stopResponse = () => {
     if (!responseIsActive(responseStateRef.current) || responseStateRef.current.cancelling) return;
     updateResponse({ type: "stop" });
-    stopBrowserAudio();
+    stopBrowserAudio(undefined, true);
     if (!send({ action: "interrupt" })) updateResponse({ type: "reset" });
   };
 
@@ -1139,6 +1153,9 @@ function MessageBubble({ message }: { message: Message }) {
           </details>
         ) : null}
         {isUser ? <div className="whitespace-pre-wrap text-sm leading-7">{message.text}</div> : <TutorMarkdown text={message.text} />}
+        {message.interrupted ? (
+          <div className="mt-2 text-xs text-slate-500">Response interrupted</div>
+        ) : null}
         {message.streaming ? (
           <div className="mt-3 flex items-center gap-1 text-blue-500">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />

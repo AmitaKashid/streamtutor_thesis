@@ -668,11 +668,11 @@ def build_interrupt_user_query(interruption_text: str, interrupted_chunks: list[
 
     return (
         "The user interrupted the assistant.\n\n"
-        "Last spoken chunks before interruption:\n"
+        "Assistant text displayed before interruption (may be incomplete):\n"
         f"{chunks_text}\n\n"
         "User interruption text:\n"
         f"{interruption_text.strip()}\n\n"
-        "Respond directly to the interruption while continuing the explanation naturally."
+        "Answer the user's interruption directly. Do not invent what was discussed earlier."
     )
 
 
@@ -743,6 +743,7 @@ def run_llm_tts_pipeline(
     evaluation_turn_id: str | None = None,
     word_aligner=None,
     streaming_caption_model=None,
+    defer_browser_memory=False,
 ) -> None:
     """
     Shared post-STT pipeline for both mic mode and file mode:
@@ -870,7 +871,9 @@ def run_llm_tts_pipeline(
     # ---------------- Conversation Context ----------------
     # Retrieval still uses only the current question/interruption text.
     # The LLM receives the growing conversation history + current question.
-    raw_current_user_query = final_user_query
+    # The synthetic interruption wrapper is an instruction, not something the
+    # student said. Never persist it as a user message in later turns.
+    raw_current_user_query = transcript
     history_snapshot = ()
     previous_turns = []
     history = ""
@@ -2041,6 +2044,7 @@ def run_llm_tts_pipeline(
         final_answer
         and getattr(args, "conversation_context", False)
         and conversation_memory is not None
+        and not defer_browser_memory
     ):
         if response_status == "completed":
             memory_answer = final_answer

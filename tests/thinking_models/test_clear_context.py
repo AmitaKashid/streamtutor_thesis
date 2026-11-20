@@ -41,6 +41,12 @@ class ClearContextTest(unittest.TestCase):
     def test_live_microphone_must_be_stopped(self):
         self.mic.set()
         self.assertFalse(self.clear())
+
+    def test_queued_browser_audio_must_finish_before_clearing(self):
+        browser = threading.Event(); browser.set()
+        self.assertFalse(clear_context_if_idle(self.memory, self.pipeline, self.request,
+            self.pending, self.mic, self.audio_processing, browser))
+        self.assertEqual(len(self.memory.snapshot()), 1)
         self.assertEqual(len(self.memory.snapshot()), 1)
 
 if __name__ == '__main__': unittest.main()
