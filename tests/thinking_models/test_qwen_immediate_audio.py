@@ -45,8 +45,10 @@ class ImmediateAudioTests(unittest.TestCase):
         self.assertEqual(errors, [])
         packets = [e for e in events if e['type'] == 'audio_chunk']
         self.assertEqual(len(packets), 2)
-        self.assertEqual([e['text'] for e in packets], ['Hello. ', None])
-        self.assertEqual(packets[0]['text_sync'], 'segment')
+        self.assertEqual([e['text'] for e in packets], [None, None])
+        self.assertEqual([e['sample_offset'] for e in packets], [0, 2400])
+        start = next(e for e in events if e['type'] == 'audio_segment_start')
+        self.assertEqual((start['text'], start['caption_mode']), ('Hello. ', 'segment'))
         self.assertIn('audio_done', [e['type'] for e in events])
 
     def test_interruption_does_not_release_later_packets(self):

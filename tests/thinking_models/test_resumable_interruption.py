@@ -18,6 +18,7 @@ def interruption_fixture():
         'interrupt_context_at_pause': ['prior sentence'],
         'interrupt_capture_started_at': 1., 'interrupt_last_voice_at': 2.,
         'active_audio_turn_id': 'old', 'session_closed': threading.Event(),
+        'conversation_delivery': types.SimpleNamespace(finish=lambda *args, **kwargs: calls.append(('memory_finish', args, kwargs))),
         'mic_enabled': microphone, 'tts_busy': busy, 'browser_audio_active': browser_active,
         'playback': types.SimpleNamespace(
             get_interrupt_snapshot=lambda: ['prior sentence'],
@@ -59,6 +60,9 @@ class ResumableInterruptionTests(unittest.TestCase):
         launched = next(item[1] for item in calls if isinstance(item, tuple) and item[0] == 'launch')
         self.assertEqual(launched['transcript'], 'Explain entropy')
         self.assertEqual(launched['interrupted_chunks'], ['prior sentence'])
+        finish_index = next(i for i, item in enumerate(calls) if isinstance(item, tuple) and item[0] == 'memory_finish')
+        launch_index = next(i for i, item in enumerate(calls) if isinstance(item, tuple) and item[0] == 'launch')
+        self.assertLess(finish_index, launch_index)
 
     def test_stale_recognition_cannot_cancel_a_new_turn_or_restart_stopped_audio(self):
         for change in ('new_turn', 'mic_off', 'stopped'):

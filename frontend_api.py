@@ -40,6 +40,8 @@ from app.mic_stt_llm_tts import (
     is_valid_barge_in_text,
 )
 from app.word_alignment import align_with_whisper
+from app.live_captions import warm_live_captions, live_caption_model
+from app.conversation_delivery import ConversationDelivery
 from rag.rag_retrieve import RagRetriever
 from stt.stt_backends import create_backend
 from stt.vad_segmenter import VADSegmenter, TARGET_SR
@@ -298,6 +300,11 @@ def startup_live_preview():
     # Start downloading/loading/warming before the first microphone utterance.
     # The loader itself runs in a daemon thread and does not block startup.
     start_preview_backend()
+
+@app.on_event("startup")
+def startup_live_captions():
+    if os.getenv("LLMTUTOR_QWEN_CAPTIONS", "acoustic") == "acoustic":
+        warm_live_captions()
 
 @app.on_event("startup")
 def startup_runtime_v1():
@@ -586,7 +593,7 @@ def build_pipeline_args(config: dict | None = None):
         reasoning_budget_tokens=config.get("reasoning_budget_tokens") if type(config.get("reasoning_budget_tokens")) is int and config.get("reasoning_budget_tokens") in (256, 512, 1024) else None,
         tts_backend=tts_backend,
         # Keep buffered Whisper timing available for controlled A/B tests.
-        stream_audio_immediately=tts_backend == "qwen3" and os.getenv("LLMTUTOR_QWEN_CAPTIONS", "segment") != "whisper",
+        stream_audio_immediately=tts_backend == "qwen3" and os.getenv("LLMTUTOR_QWEN_CAPTIONS", "acoustic") != "whisper",
         qwen3_speaker=qwen3_speaker,
         qwen3_language=qwen3_language,
 
@@ -830,6 +837,7 @@ async def websocket_endpoint(websocket: WebSocket):
             had_candidate = turn_id in pending_judge_turn_ids
             pending_judge_turn_ids.discard(turn_id)
             legacy_payload = pending_legacy_text.pop(turn_id, None)
+        conversation_delivery.finish(turn_id, delivered=delivered)
         if delivered and legacy_payload is not None and _runtime_evaluator is not None:
             _runtime_evaluator.judge_and_log_async(**legacy_payload)
         if bridge is not None and had_candidate:
@@ -852,6 +860,7 @@ async def websocket_endpoint(websocket: WebSocket):
         max_turns=None,
         max_chars=None,
     )
+    conversation_delivery = ConversationDelivery(conversation_memory)
 
     interrupt_capture_mode = False
     interrupt_capture_turn_id = None
@@ -905,6 +914,8 @@ async def websocket_endpoint(websocket: WebSocket):
     def emit_from_thread(payload: dict):
         nonlocal active_audio_turn_id
         msg_type = payload.get("type")
+        if msg_type in {"audio_segment_start", "audio_chunk", "audio_text"}:
+            conversation_delivery.expect(payload.get("turn_id"), payload.get("text"))
         # TASK6_TELEMETRY_V1: measurement only; never blocks speech on judge inference.
         task6_record_event(evaluation_conversation_id, msg_type, payload.get("turn_id"))
         if msg_type == "tutor_turn_started":
@@ -974,6 +985,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 f"llm {last_applied_llm_model} -> {args.llm_model}"
             )
 
+            conversation_delivery.finish(active_audio_turn_id, delivered=False)
             playback.stop_now()
             browser_audio_active.clear()
             tts_busy.clear()
@@ -1238,6 +1250,9 @@ async def websocket_endpoint(websocket: WebSocket):
         interrupt_last_voice_at = 0.0
 
         if transcript and is_valid_barge_in_text(transcript, last_chunks):
+            # Commit only what had reached the browser at speech onset; the
+            # backend may have synthesized additional segments ahead of playback.
+            conversation_delivery.finish(attempt_turn_id, delivered=False, visible_at_stop=last_chunks)
             playback.stop_now()
             cancel_all_browser_delivery()
             browser_audio_active.clear()
@@ -1297,6 +1312,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 pipeline_active.set()
 
                 try:
+                    if request_args.tts_enabled and not request_cancel_event.is_set():
+                        conversation_delivery.start(request_turn_id, transcript,
+                                                    bool(getattr(request_args, "conversation_context", False)))
                     selected_tts = request_tts_engine
                     if request_args.tts_enabled and selected_tts is None:
                         selected_tts = get_tts_engine_for_backend(request_args.tts_backend)
@@ -1346,6 +1364,10 @@ async def websocket_endpoint(websocket: WebSocket):
                         evaluation_turn_id=request_turn_id,
                         event_cb=emit_from_thread,
                         word_aligner=word_aligner,
+                        streaming_caption_model=(live_caption_model(request_args.qwen3_language)
+                            if request_args.stream_audio_immediately and
+                            os.getenv("LLMTUTOR_QWEN_CAPTIONS", "acoustic") == "acoustic" else None),
+                        defer_browser_memory=request_args.tts_enabled and request_args.browser_audio,
                     )
 
                 except Exception as e:
@@ -1499,7 +1521,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     # still-active utterance.
                     interrupt_capture_mode = True
                     interrupt_capture_turn_id = active_audio_turn_id
-                    interrupt_context_at_pause = playback.get_interrupt_context(n_finished=3)
+                    interrupt_context_at_pause = conversation_delivery.visible_chunks(interrupt_capture_turn_id)
                     interrupt_counter = 0
                     interrupt_last_voice_at = now
 
@@ -1674,8 +1696,10 @@ async def websocket_endpoint(websocket: WebSocket):
             if action == "clear_context":
                 cleared = clear_context_if_idle(
                     conversation_memory, pipeline_lock, request_cancel_lock,
-                    request_cancel_events, mic_enabled, audio_processing,
+                    request_cancel_events, mic_enabled, audio_processing, browser_audio_active,
                 )
+                if cleared:
+                    conversation_delivery.clear()
                 await ws_send({"type": "context_cleared" if cleared else "context_clear_rejected"})
                 continue
 
@@ -1699,7 +1723,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     })
                     continue
 
-                last_chunks = playback.get_interrupt_context(n_finished=2)
+                last_chunks = conversation_delivery.visible_chunks(active_audio_turn_id)
 
                 if not is_valid_barge_in_text(text, last_chunks):
                     await ws_send({
@@ -1723,6 +1747,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     "value": "interrupted",
                 })
 
+                conversation_delivery.finish(active_audio_turn_id, delivered=False, visible_at_stop=last_chunks)
                 playback.stop_now()
                 cancel_all_browser_delivery()
                 segmenter.reset()
@@ -1781,6 +1806,12 @@ async def websocket_endpoint(websocket: WebSocket):
                     args = SimpleNamespace(**{**vars(args), "tts_enabled": enabled})
                 continue
 
+            if action == "browser_caption_progress":
+                turn_id = data.get("turn_id")
+                if isinstance(turn_id, str) and turn_id == active_audio_turn_id:
+                    conversation_delivery.progress(turn_id, data.get("text"))
+                continue
+
             if action == "browser_text_finished":
                 turn_id = data.get("turn_id")
                 with pending_judge_lock:
@@ -1801,6 +1832,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 resolve_browser_delivery(
                     turn_id, delivered=action == "browser_audio_finished"
                 )
+                # A delayed acknowledgement for an old turn must not clear
+                # the active playback state of a newer turn.
+                if turn_id != active_audio_turn_id:
+                    continue
                 browser_audio_active.clear()
                 reset_tts_probe_state()
 
@@ -1861,6 +1896,7 @@ async def websocket_endpoint(websocket: WebSocket):
     finally:
         session_closed.set()
         cancel_all_browser_delivery()
+        conversation_delivery.clear()
         mic_enabled.clear()
         playback.stop_now()
         reset_partial_state()

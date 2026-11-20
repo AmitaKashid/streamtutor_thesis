@@ -56,6 +56,7 @@ interface Message {
   text: string;
   reasoning?: string;
   streaming?: boolean;
+  interrupted?: boolean;
   timestamp: string;
 }
 
@@ -135,7 +136,10 @@ type ServerEvent =
   | { type: "barge_in_accepted"; text: string }
   | { type: "tutor_turn_started"; turn_id: string; delivery_mode: "audio" | "text"; model?: string | null }
   | { type: "text_interrupted"; turn_id: string }
-  | { type: "audio_chunk"; turn_id: string; data: string; sample_rate: number; channels: number; text?: string | null; text_sync?: "segment" | null; word_timings?: Array<{text: string; start: number; end: number}> | null }
+  | { type: "audio_chunk"; turn_id: string; data: string; sample_rate: number; channels: number; text?: string | null; text_sync?: "segment" | null; segment_id?: string | null; sample_offset?: number | null; word_timings?: Array<{text: string; start: number; end: number}> | null }
+  | { type: "audio_segment_start"; turn_id: string; segment_id: string; text: string; caption_mode: "acoustic" | "segment" }
+  | { type: "audio_segment_end"; turn_id: string; segment_id: string; total_samples: number; sample_rate: number }
+  | { type: "audio_words"; turn_id: string; segment_id: string; words: Array<{text:string;start:number;end:number}> }
   | { type: "audio_text"; turn_id: string; text: string }
   | { type: "alignment_warning"; turn_id: string }
   | { type: "audio_pause" | "audio_resume"; turn_id: string }
@@ -323,14 +327,27 @@ function useTutorSocket(url: string) {
     ws.send(JSON.stringify({ action: "browser_text_finished", turn_id: pendingTextDelivery.turnId }));
   }, [messages, pendingTextDelivery]);
 
-  const finishAssistantMessage = (turnId: string) => {
-    setMessages((prev) => prev.map((message) =>
-      message.id === `assistant_${turnId}` ? { ...message, streaming: false } : message,
-    ));
+  const finishAssistantMessage = (turnId: string, interrupted = false) => {
+    setMessages((prev) => {
+      const id = `assistant_${turnId}`;
+      if (interrupted && !prev.some((message) => message.id === id)) {
+        return [...prev, { id, role: "assistant", text: "", streaming: false,
+          interrupted: true, timestamp: new Date().toLocaleTimeString() }];
+      }
+      return prev.map((message) => message.id === id
+        ? { ...message, streaming: false, interrupted: message.interrupted || interrupted }
+        : message);
+    });
   };
 
   const appendAssistantText = (turnId: string, text: string) => {
     if (turnId !== playbackTurnIdRef.current || stoppedRef.current || !text) return;
+    // The server must not put generated-but-unpresented speech into history.
+    // Progress is sent in WebSocket order before the terminal playback ack.
+    const ws = wsRef.current;
+    if (deliveryModeRef.current === "audio" && ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ action: "browser_caption_progress", turn_id: turnId, text }));
+    }
     const messageId = `assistant_${turnId}`;
     setMessages((prev) => {
       const index = prev.findIndex((message) => message.id === messageId);
@@ -390,11 +407,11 @@ function useTutorSocket(url: string) {
     return buffer;
   };
 
-  const stopBrowserAudio = (turnId?: string) => {
+  const stopBrowserAudio = (turnId?: string, interrupted = responseIsActive(responseStateRef.current)) => {
     const id = turnId || playbackTurnIdRef.current;
     stoppedRef.current = true;
     playbackRef.current?.clear();
-    if (id) finishAssistantMessage(id);
+    if (id) finishAssistantMessage(id, interrupted);
     const ws = wsRef.current;
     if (deliveryModeRef.current === "audio" && id && !notifiedTurnIdsRef.current.has(id) &&
         ws?.readyState === WebSocket.OPEN) {
@@ -533,6 +550,22 @@ function useTutorSocket(url: string) {
             return;
           }
 
+          if (data.type === "audio_segment_start") {
+            if (data.turn_id !== playbackTurnIdRef.current || stoppedRef.current) return;
+            getPlayback().startSegment(data.turn_id, data.segment_id, data.text, data.caption_mode);
+            if (data.caption_mode === "segment") console.info("[CAPTIONS] Segment timing; CPU word tracking unavailable or disabled.");
+            return;
+          }
+          if (data.type === "audio_segment_end") {
+            if (data.turn_id !== playbackTurnIdRef.current || stoppedRef.current) return;
+            getPlayback().endSegment(data.turn_id, data.segment_id, data.total_samples, data.sample_rate);
+            return;
+          }
+          if (data.type === "audio_words") {
+            if (data.turn_id !== playbackTurnIdRef.current || stoppedRef.current) return;
+            getPlayback().updateWords(data.turn_id, data.segment_id, data.words);
+            return;
+          }
           if (data.type === "audio_chunk") {
             if (data.turn_id !== playbackTurnIdRef.current || stoppedRef.current) return;
             receivedAudioRef.current = true;
@@ -546,7 +579,7 @@ function useTutorSocket(url: string) {
                 data.word_timings.some((word, index) => !Number.isFinite(word.start) || !Number.isFinite(word.end) ||
                   word.start < 0 || word.end < word.start || word.end > buffer.duration + 0.1 ||
                   (index > 0 && word.start < data.word_timings![index - 1].start)))) {
-              stopBrowserAudio(data.turn_id);
+              stopBrowserAudio(data.turn_id, true);
               updateResponse({ type: "stop" });
               const ws = wsRef.current;
               if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ action: "interrupt" }));
@@ -555,7 +588,9 @@ function useTutorSocket(url: string) {
               setStage("error");
               return;
             }
-            getPlayback().enqueueAudio(data.turn_id, buffer, data.text ?? "", data.word_timings ?? []);
+            getPlayback().enqueueAudio(data.turn_id, buffer, data.text ?? "", data.word_timings ?? [],
+              data.segment_id != null ? { segmentId: data.segment_id, offset: data.sample_offset ?? -1,
+                frames: buffer.length, rate: buffer.sampleRate } : undefined);
             return;
           }
 
@@ -581,7 +616,7 @@ function useTutorSocket(url: string) {
           if (data.type === "audio_stop") {
             if (data.turn_id === playbackTurnIdRef.current) {
               if (data.reason === "microphone") console.info("[AUDIO STOP] Microphone voice activity detected.");
-              stopBrowserAudio(data.turn_id);
+              stopBrowserAudio(data.turn_id, true);
               if (responseStateRef.current.generating) {
                 setMetrics(metricsLedgerRef.current.update(data.turn_id, { thinkingTime: null, llmAnswerTime: null }));
               }
@@ -801,7 +836,7 @@ function useTutorSocket(url: string) {
   const stopResponse = () => {
     if (!responseIsActive(responseStateRef.current) || responseStateRef.current.cancelling) return;
     updateResponse({ type: "stop" });
-    stopBrowserAudio();
+    stopBrowserAudio(undefined, true);
     if (!send({ action: "interrupt" })) updateResponse({ type: "reset" });
   };
 
@@ -1118,6 +1153,9 @@ function MessageBubble({ message }: { message: Message }) {
           </details>
         ) : null}
         {isUser ? <div className="whitespace-pre-wrap text-sm leading-7">{message.text}</div> : <TutorMarkdown text={message.text} />}
+        {message.interrupted ? (
+          <div className="mt-2 text-xs text-slate-500">Response interrupted</div>
+        ) : null}
         {message.streaming ? (
           <div className="mt-3 flex items-center gap-1 text-blue-500">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />

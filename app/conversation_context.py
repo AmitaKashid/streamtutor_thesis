@@ -14,5 +14,9 @@ def contextual_user_query(question: str, history: str, *, earlier_omitted: bool 
     if history:
         parts.append('Previous conversation between the user and assistant:\n' + history)
     parts.append('Current user question:\n' + question)
-    parts.append('Use the previous conversation as context. Respond to the current question using the selected teaching approach.')
+    parts.append('Answer the current user question directly, using earlier turns only as context. '
+                 'Never claim that the user asked a different question or that a specific example was discussed '
+                 'unless it appears in the visible history. If the user corrects a false memory, acknowledge the '
+                 'mistake briefly and answer their request. If they ask for an example, work through a clearly '
+                 'hypothetical example rather than inventing a previous one.')
     return '\n\n'.join(parts)

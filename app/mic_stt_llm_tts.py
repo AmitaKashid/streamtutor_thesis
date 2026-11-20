@@ -668,11 +668,11 @@ def build_interrupt_user_query(interruption_text: str, interrupted_chunks: list[
 
     return (
         "The user interrupted the assistant.\n\n"
-        "Last spoken chunks before interruption:\n"
+        "Assistant text displayed before interruption (may be incomplete):\n"
         f"{chunks_text}\n\n"
         "User interruption text:\n"
         f"{interruption_text.strip()}\n\n"
-        "Respond directly to the interruption while continuing the explanation naturally."
+        "Answer the user's interruption directly. Do not invent what was discussed earlier."
     )
 
 
@@ -742,6 +742,8 @@ def run_llm_tts_pipeline(
     request_cancel_event: threading.Event | None = None,
     evaluation_turn_id: str | None = None,
     word_aligner=None,
+    streaming_caption_model=None,
+    defer_browser_memory=False,
 ) -> None:
     """
     Shared post-STT pipeline for both mic mode and file mode:
@@ -869,7 +871,9 @@ def run_llm_tts_pipeline(
     # ---------------- Conversation Context ----------------
     # Retrieval still uses only the current question/interruption text.
     # The LLM receives the growing conversation history + current question.
-    raw_current_user_query = final_user_query
+    # The synthetic interruption wrapper is an instruction, not something the
+    # student said. Never persist it as a user message in later turns.
+    raw_current_user_query = transcript
     history_snapshot = ()
     previous_turns = []
     history = ""
@@ -1438,7 +1442,8 @@ def run_llm_tts_pipeline(
         return _on_start, _on_end
     audio_chunk_count = 0
 
-    def enqueue_audio_chunk(chunk_np: np.ndarray, sr: int, chunk_text: str | None = None, word_timings=None, text_sync=None) -> None:
+    def enqueue_audio_chunk(chunk_np: np.ndarray, sr: int, chunk_text: str | None = None, word_timings=None, text_sync=None,
+                            segment_id=None, sample_offset=None) -> None:
         nonlocal audio_out, crossfader, playback_started, audio_prebuffer_seconds, first_audio_t, audio_chunk_count
         nonlocal tts_play_start_t, first_tts_actual_playback_t
         if playback.interrupted.is_set():
@@ -1491,6 +1496,8 @@ def run_llm_tts_pipeline(
                 "text": chunk_text,
                 "word_timings": word_timings,
                 "text_sync": text_sync,
+                "segment_id": segment_id,
+                "sample_offset": sample_offset,
             })
 
             return
@@ -1565,6 +1572,14 @@ def run_llm_tts_pipeline(
             aligned_audio_queue = queue.Queue(maxsize=2)
             immediate_audio = getattr(args, "stream_audio_immediately", False)
             align_in_parallel = getattr(args, "browser_audio", False) and word_aligner is not None and not immediate_audio
+            caption_worker = None
+            if immediate_audio and streaming_caption_model is not None:
+                from app.live_captions import LiveCaptionWorker
+                caption_worker = LiveCaptionWorker(
+                    streaming_caption_model,
+                    lambda event: emit({**event, "turn_id": evaluation_turn_id}),
+                    playback.interrupted,
+                )
 
             def fail_speech_worker(exc):
                 worker_errors.append(exc)
@@ -1616,7 +1631,7 @@ def run_llm_tts_pipeline(
                     # Each web streaming engine accepts one flushed text
                     # segment per request. Associate it with the first PCM
                     # packet to preserve playback-synchronized text.
-                    for text_event in queued_text_events():
+                    for segment_index, text_event in enumerate(queued_text_events()):
                         if playback.interrupted.is_set():
                             break
                         text = text_event.text
@@ -1631,6 +1646,10 @@ def run_llm_tts_pipeline(
                         first_packet = True
                         audio_parts = []
                         segment_sample_rate = None
+                        segment_id = str(segment_index)
+                        segment_samples = 0
+                        last_caption_samples = 0
+                        tracker = caption_worker.start(text) if caption_worker is not None else None
                         for chunk_np, sr in tts_engine.stream_text(
                             [text_event], voice_prompt=voice_prompt, config=None,
                         ):
@@ -1639,8 +1658,27 @@ def run_llm_tts_pipeline(
                             if immediate_audio:
                                 # Qwen already yields playable PCM. Never collect a
                                 # whole utterance or run Whisper before releasing it.
-                                enqueue_audio_chunk(chunk_np, sr, chunk_text=text if first_packet else None,
-                                                    text_sync="segment")
+                                if segment_sample_rate is not None and segment_sample_rate != sr:
+                                    raise RuntimeError("Sample rate changed within a speech segment")
+                                segment_sample_rate = sr
+                                if first_packet:
+                                    emit({"type": "audio_segment_start", "turn_id": evaluation_turn_id,
+                                          "segment_id": segment_id, "text": text,
+                                          "caption_mode": "acoustic" if tracker is not None else "segment"})
+                                    playback.mark_chunk_started(text)
+                                    playback.mark_chunk_finished()
+                                enqueue_audio_chunk(chunk_np, sr, segment_id=segment_id, sample_offset=segment_samples)
+                                segment_samples += len(chunk_np)
+                                # The audio send ALWAYS precedes caption work.
+                                # Bound retained PCM even for a runaway model.
+                                if tracker is not None and segment_samples <= 45 * sr:
+                                    audio_parts.append(chunk_np)
+                                    if segment_samples >= .48 * sr and segment_samples - last_caption_samples >= .32 * sr:
+                                        caption_worker.submit(segment_id, tracker, audio_parts, sr)
+                                        last_caption_samples = segment_samples
+                                elif tracker is not None:
+                                    tracker = None
+                                    audio_parts.clear()
                             elif word_aligner is not None:
                                 if segment_sample_rate is not None and segment_sample_rate != sr:
                                     raise RuntimeError("Sample rate changed within a speech segment")
@@ -1651,6 +1689,12 @@ def run_llm_tts_pipeline(
                             first_packet = False
                         if first_packet and not playback.interrupted.is_set():
                             raise RuntimeError("TTS returned no audio for a text segment")
+                        if immediate_audio and not playback.interrupted.is_set():
+                            emit({"type": "audio_segment_end", "turn_id": evaluation_turn_id,
+                                  "segment_id": segment_id, "total_samples": segment_samples,
+                                  "sample_rate": segment_sample_rate})
+                            if tracker is not None and audio_parts:
+                                caption_worker.submit(segment_id, tracker, audio_parts, segment_sample_rate, final=True)
                         if not immediate_audio and word_aligner is not None and audio_parts and not playback.interrupted.is_set():
                             audio = np.concatenate(audio_parts, axis=0)
                             queue_for_alignment((text, audio, segment_sample_rate))
@@ -1670,6 +1714,11 @@ def run_llm_tts_pipeline(
                 except Exception as exc:
                     fail_speech_worker(exc)
                 finally:
+                    if caption_worker is not None:
+                        if playback.interrupted.is_set() or producer_failed.is_set():
+                            caption_worker.close()
+                        else:
+                            caption_worker.finish()
                     synthesis_done.set()
                     worker_done.set()
 
@@ -1995,6 +2044,7 @@ def run_llm_tts_pipeline(
         final_answer
         and getattr(args, "conversation_context", False)
         and conversation_memory is not None
+        and not defer_browser_memory
     ):
         if response_status == "completed":
             memory_answer = final_answer
