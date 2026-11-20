@@ -803,6 +803,13 @@ def run_llm_tts_pipeline(
 
     is_interrupt = interruption_text is not None
     retrieval_query = interruption_text.strip() if is_interrupt else transcript.strip()
+    # Capture one history snapshot for both retrieval and the model prompt.
+    previous_turns = []
+    history_omitted = False
+    if getattr(args, "conversation_context", False) and conversation_memory is not None:
+        previous_turns, history_omitted = conversation_memory.snapshot_with_omission()
+        from app.followup_retrieval import followup_retrieval_query
+        retrieval_query = followup_retrieval_query(retrieval_query, previous_turns)
     emit({"type": "stage", "value": "retrieving" if retriever is not None else "thinking"})
     # ---------------- RAG ----------------
     rag_time = 0.0
@@ -869,18 +876,15 @@ def run_llm_tts_pipeline(
         final_user_query = transcript
 
     # ---------------- Conversation Context ----------------
-    # Retrieval still uses only the current question/interruption text.
-    # The LLM receives the growing conversation history + current question.
+    # The LLM receives the same history snapshot used for retrieval.
     # The synthetic interruption wrapper is an instruction, not something the
     # student said. Never persist it as a user message in later turns.
     raw_current_user_query = transcript
     history_snapshot = ()
-    previous_turns = []
     history = ""
     history_turn_count = 0
     if getattr(args, "conversation_context", False) and conversation_memory is not None:
         # Use the same selected turns and formatted text for the prompt and metrics.
-        previous_turns, history_omitted = conversation_memory.snapshot_with_omission()
         history, history_turn_count = conversation_memory.format_history_snapshot(previous_turns)
         history_snapshot = tuple(msg for turn in previous_turns for msg in (
             {"role": "user", "content": turn["user"]},
