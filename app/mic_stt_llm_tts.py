@@ -1438,7 +1438,7 @@ def run_llm_tts_pipeline(
         return _on_start, _on_end
     audio_chunk_count = 0
 
-    def enqueue_audio_chunk(chunk_np: np.ndarray, sr: int, chunk_text: str | None = None, word_timings=None) -> None:
+    def enqueue_audio_chunk(chunk_np: np.ndarray, sr: int, chunk_text: str | None = None, word_timings=None, text_sync=None) -> None:
         nonlocal audio_out, crossfader, playback_started, audio_prebuffer_seconds, first_audio_t, audio_chunk_count
         nonlocal tts_play_start_t, first_tts_actual_playback_t
         if playback.interrupted.is_set():
@@ -1490,6 +1490,7 @@ def run_llm_tts_pipeline(
                 # Present only on the first audio packet for this text segment.
                 "text": chunk_text,
                 "word_timings": word_timings,
+                "text_sync": text_sync,
             })
 
             return
@@ -1562,7 +1563,8 @@ def run_llm_tts_pipeline(
             worker_errors = []
             synthesis_done = threading.Event()
             aligned_audio_queue = queue.Queue(maxsize=2)
-            align_in_parallel = getattr(args, "browser_audio", False) and word_aligner is not None
+            immediate_audio = getattr(args, "stream_audio_immediately", False)
+            align_in_parallel = getattr(args, "browser_audio", False) and word_aligner is not None and not immediate_audio
 
             def fail_speech_worker(exc):
                 worker_errors.append(exc)
@@ -1634,7 +1636,12 @@ def run_llm_tts_pipeline(
                         ):
                             if playback.interrupted.is_set():
                                 break
-                            if word_aligner is not None:
+                            if immediate_audio:
+                                # Qwen already yields playable PCM. Never collect a
+                                # whole utterance or run Whisper before releasing it.
+                                enqueue_audio_chunk(chunk_np, sr, chunk_text=text if first_packet else None,
+                                                    text_sync="segment")
+                            elif word_aligner is not None:
                                 if segment_sample_rate is not None and segment_sample_rate != sr:
                                     raise RuntimeError("Sample rate changed within a speech segment")
                                 segment_sample_rate = sr
@@ -1644,7 +1651,7 @@ def run_llm_tts_pipeline(
                             first_packet = False
                         if first_packet and not playback.interrupted.is_set():
                             raise RuntimeError("TTS returned no audio for a text segment")
-                        if word_aligner is not None and audio_parts and not playback.interrupted.is_set():
+                        if not immediate_audio and word_aligner is not None and audio_parts and not playback.interrupted.is_set():
                             audio = np.concatenate(audio_parts, axis=0)
                             queue_for_alignment((text, audio, segment_sample_rate))
                 else:

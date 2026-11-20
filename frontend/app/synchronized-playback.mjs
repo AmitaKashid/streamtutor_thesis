@@ -284,7 +284,10 @@ export function createSynchronizedPlayback({ getContext, onText, onDrained, onEr
         pendingWords.push(...words.map((word) => ({ text: word.text, at: startedAt + word.start })));
         if (textTimer === null) revealDueWords(ctx, currentTurn, currentEpoch);
       }
-      else if (item.text) onText(currentTurn, item.text);
+      else if (item.text) {
+        pendingWords.push({ text: item.text, at: startedAt });
+        if (textTimer === null) revealDueWords(ctx, currentTurn, currentEpoch);
+      }
       scheduleAhead(ctx, currentTurn, currentEpoch);
     } catch (error) {
       onError(currentTurn, error);
