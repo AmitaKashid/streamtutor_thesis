@@ -1,0 +1,4 @@
+# Optional CPU-only live word tracking; install in the frontend API environment.
+# Existing requirements.txt supplies numpy and scipy. No CUDA packages needed.
+onnxruntime==1.23.2
+num2words==0.5.14

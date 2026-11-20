@@ -135,7 +135,10 @@ type ServerEvent =
   | { type: "barge_in_accepted"; text: string }
   | { type: "tutor_turn_started"; turn_id: string; delivery_mode: "audio" | "text"; model?: string | null }
   | { type: "text_interrupted"; turn_id: string }
-  | { type: "audio_chunk"; turn_id: string; data: string; sample_rate: number; channels: number; text?: string | null; text_sync?: "segment" | null; word_timings?: Array<{text: string; start: number; end: number}> | null }
+  | { type: "audio_chunk"; turn_id: string; data: string; sample_rate: number; channels: number; text?: string | null; text_sync?: "segment" | null; segment_id?: string | null; sample_offset?: number | null; word_timings?: Array<{text: string; start: number; end: number}> | null }
+  | { type: "audio_segment_start"; turn_id: string; segment_id: string; text: string; caption_mode: "acoustic" | "segment" }
+  | { type: "audio_segment_end"; turn_id: string; segment_id: string; total_samples: number; sample_rate: number }
+  | { type: "audio_words"; turn_id: string; segment_id: string; words: Array<{text:string;start:number;end:number}> }
   | { type: "audio_text"; turn_id: string; text: string }
   | { type: "alignment_warning"; turn_id: string }
   | { type: "audio_pause" | "audio_resume"; turn_id: string }
@@ -533,6 +536,22 @@ function useTutorSocket(url: string) {
             return;
           }
 
+          if (data.type === "audio_segment_start") {
+            if (data.turn_id !== playbackTurnIdRef.current || stoppedRef.current) return;
+            getPlayback().startSegment(data.turn_id, data.segment_id, data.text, data.caption_mode);
+            if (data.caption_mode === "segment") console.info("[CAPTIONS] Segment timing; CPU word tracking unavailable or disabled.");
+            return;
+          }
+          if (data.type === "audio_segment_end") {
+            if (data.turn_id !== playbackTurnIdRef.current || stoppedRef.current) return;
+            getPlayback().endSegment(data.turn_id, data.segment_id, data.total_samples, data.sample_rate);
+            return;
+          }
+          if (data.type === "audio_words") {
+            if (data.turn_id !== playbackTurnIdRef.current || stoppedRef.current) return;
+            getPlayback().updateWords(data.turn_id, data.segment_id, data.words);
+            return;
+          }
           if (data.type === "audio_chunk") {
             if (data.turn_id !== playbackTurnIdRef.current || stoppedRef.current) return;
             receivedAudioRef.current = true;
@@ -555,7 +574,9 @@ function useTutorSocket(url: string) {
               setStage("error");
               return;
             }
-            getPlayback().enqueueAudio(data.turn_id, buffer, data.text ?? "", data.word_timings ?? []);
+            getPlayback().enqueueAudio(data.turn_id, buffer, data.text ?? "", data.word_timings ?? [],
+              data.segment_id != null ? { segmentId: data.segment_id, offset: data.sample_offset ?? -1,
+                frames: buffer.length, rate: buffer.sampleRate } : undefined);
             return;
           }
 

@@ -1,3 +1,5 @@
+import { createStreamingCaptions } from './streaming-captions.mjs';
+
 /**
  * Keeps text segments in the same ordered queue as their browser audio.
  * Timed words are revealed according to the Web Audio playback clock.
@@ -12,7 +14,7 @@
  * }} callbacks
  */
 export function createSynchronizedPlayback({ getContext, onText, onDrained, onError, onUnderrun, onPauseError }) {
-  /** @type {Array<{buffer: AudioBuffer | null, text: string, words?: Array<{text: string, start: number, end: number}>}>} */
+  /** @type {Array<{buffer: AudioBuffer | null, text: string, words?: Array<{text: string, start: number, end: number}>, pcm?: {segmentId:string,offset:number,frames:number,rate:number}}>} */
   let queue = [];
   /** @type {AudioBufferSourceNode | null} */
   let source = null;
@@ -36,8 +38,13 @@ export function createSynchronizedPlayback({ getContext, onText, onDrained, onEr
   let lastScheduledEnd = 0;
   /** @type {ReturnType<typeof setTimeout> | null} */
   let textTimer = null;
+  const captions = createStreamingCaptions({
+    clock: () => outputClock(getContext()),
+    onText: (text) => { if (turnId) onText(turnId, text); },
+  });
 
   function clear() {
+    captions.clear();
     epoch += 1;
     if (textTimer !== null) clearTimeout(textTimer);
     textTimer = null;
@@ -91,6 +98,7 @@ export function createSynchronizedPlayback({ getContext, onText, onDrained, onEr
     textTimer = null;
     if (paused) return;
     const outputTime = outputClock(ctx);
+    captions.tick();
     let text = '';
     while (pendingWords.length && pendingWords[0].at <= outputTime) {
       text += pendingWords.shift()?.text || '';
@@ -123,6 +131,7 @@ export function createSynchronizedPlayback({ getContext, onText, onDrained, onEr
       const end = startedAt + item.buffer.duration;
       next.onended = () => handleEnd(next, ctx, currentTurn, currentEpoch);
       next.start(startedAt);
+      if (item.pcm) captions.scheduled(item.pcm, startedAt);
       trackSegmentTiming(startedAt, item.buffer.duration, currentTurn);
       scheduled.push({ node: next, end, ended: false });
       pendingOutputUntil = Math.max(pendingOutputUntil, end);
@@ -204,6 +213,7 @@ export function createSynchronizedPlayback({ getContext, onText, onDrained, onEr
             resuming = false;
             if (epoch === currentEpoch && turnId === currentTurn && paused) {
               paused = false;
+              captions.resume();
               onPauseError?.(currentTurn, error);
             }
             if (turnId) pump();
@@ -211,6 +221,7 @@ export function createSynchronizedPlayback({ getContext, onText, onDrained, onEr
         }
       } catch (error) {
         paused = false;
+        captions.resume();
         onPauseError?.(currentTurn, error);
         pump();
       }
@@ -241,6 +252,7 @@ export function createSynchronizedPlayback({ getContext, onText, onDrained, onEr
         }
       }
       const item = queue.shift();
+      captions.tick();
       if (item?.text) onText(currentTurn, item.text);
     }
     if (!queue.length) {
@@ -253,6 +265,8 @@ export function createSynchronizedPlayback({ getContext, onText, onDrained, onEr
           }
         }
         drained = true;
+        captions.tick();
+        captions.clear();
         onDrained(currentTurn);
       }
       return;
@@ -276,6 +290,7 @@ export function createSynchronizedPlayback({ getContext, onText, onDrained, onEr
       sourceEnd = Number.isFinite(item.buffer.duration) ? startedAt + item.buffer.duration : 0;
       next.onended = () => handleEnd(next, ctx, currentTurn, currentEpoch);
       next.start(startedAt);
+      if (item.pcm) captions.scheduled(item.pcm, startedAt);
       trackSegmentTiming(startedAt, item.buffer.duration, currentTurn);
       if (Number.isFinite(item.buffer.duration)) {
         pendingOutputUntil = Math.max(pendingOutputUntil, startedAt + item.buffer.duration);
@@ -297,11 +312,23 @@ export function createSynchronizedPlayback({ getContext, onText, onDrained, onEr
   return {
     /** @param {string} id */
     start(id) { clear(); turnId = id; },
-    /** @param {string} id @param {AudioBuffer} buffer @param {string} [text] @param {Array<{text: string, start: number, end: number}>} [words] */
-    enqueueAudio(id, buffer, text = '', words = []) {
+    /** @param {string} id @param {AudioBuffer} buffer @param {string} [text] @param {Array<{text: string, start: number, end: number}>} [words] @param {{segmentId:string,offset:number,frames:number,rate:number}} [pcm] */
+    enqueueAudio(id, buffer, text = '', words = [], pcm) {
       if (id !== turnId || ended) return;
-      queue.push({ buffer, text, words });
+      queue.push({ buffer, text, words, pcm });
       pump();
+    },
+    /** @param {string} id @param {string} segment @param {string} text @param {'acoustic'|'segment'} mode */
+    startSegment(id, segment, text, mode) {
+      if (id === turnId && !ended) captions.start(segment, text, mode);
+    },
+    /** @param {string} id @param {string} segment @param {number} total @param {number} rate */
+    endSegment(id, segment, total, rate) {
+      if (id === turnId && !ended) captions.end(segment, total, rate);
+    },
+    /** @param {string} id @param {string} segment @param {Array<{text:string,start:number,end:number}>} words */
+    updateWords(id, segment, words) {
+      if (id === turnId && !drained) captions.words(segment, words);
     },
     /** @param {string} id @param {string} text */
     enqueueText(id, text) {
@@ -319,6 +346,7 @@ export function createSynchronizedPlayback({ getContext, onText, onDrained, onEr
     pause(id) {
       if (id !== turnId || drained || paused) return;
       paused = true;
+      captions.pause();
       if (textTimer !== null) clearTimeout(textTimer);
       textTimer = null;
       pump();
@@ -327,6 +355,7 @@ export function createSynchronizedPlayback({ getContext, onText, onDrained, onEr
     resume(id) {
       if (id !== turnId || drained || !paused) return;
       paused = false;
+      captions.resume();
       pump();
     },
     clear,

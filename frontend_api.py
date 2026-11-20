@@ -40,6 +40,7 @@ from app.mic_stt_llm_tts import (
     is_valid_barge_in_text,
 )
 from app.word_alignment import align_with_whisper
+from app.live_captions import warm_live_captions, live_caption_model
 from rag.rag_retrieve import RagRetriever
 from stt.stt_backends import create_backend
 from stt.vad_segmenter import VADSegmenter, TARGET_SR
@@ -298,6 +299,11 @@ def startup_live_preview():
     # Start downloading/loading/warming before the first microphone utterance.
     # The loader itself runs in a daemon thread and does not block startup.
     start_preview_backend()
+
+@app.on_event("startup")
+def startup_live_captions():
+    if os.getenv("LLMTUTOR_QWEN_CAPTIONS", "acoustic") == "acoustic":
+        warm_live_captions()
 
 @app.on_event("startup")
 def startup_runtime_v1():
@@ -586,7 +592,7 @@ def build_pipeline_args(config: dict | None = None):
         reasoning_budget_tokens=config.get("reasoning_budget_tokens") if type(config.get("reasoning_budget_tokens")) is int and config.get("reasoning_budget_tokens") in (256, 512, 1024) else None,
         tts_backend=tts_backend,
         # Keep buffered Whisper timing available for controlled A/B tests.
-        stream_audio_immediately=tts_backend == "qwen3" and os.getenv("LLMTUTOR_QWEN_CAPTIONS", "segment") != "whisper",
+        stream_audio_immediately=tts_backend == "qwen3" and os.getenv("LLMTUTOR_QWEN_CAPTIONS", "acoustic") != "whisper",
         qwen3_speaker=qwen3_speaker,
         qwen3_language=qwen3_language,
 
@@ -1346,6 +1352,9 @@ async def websocket_endpoint(websocket: WebSocket):
                         evaluation_turn_id=request_turn_id,
                         event_cb=emit_from_thread,
                         word_aligner=word_aligner,
+                        streaming_caption_model=(live_caption_model(request_args.qwen3_language)
+                            if request_args.stream_audio_immediately and
+                            os.getenv("LLMTUTOR_QWEN_CAPTIONS", "acoustic") == "acoustic" else None),
                     )
 
                 except Exception as e:
