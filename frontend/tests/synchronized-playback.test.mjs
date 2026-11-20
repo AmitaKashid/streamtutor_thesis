@@ -45,6 +45,14 @@ function fixture({ suspended = false, failStart = false } = {}) {
 
 const buffer = (name) => ({ name });
 
+test('an empty answer drains once so the caller can report missing audio', () => {
+  const { playback, events } = fixture();
+  playback.start('empty');
+  playback.finish('empty');
+  playback.finish('empty');
+  assert.deepEqual(events, [['drained', 'empty']]);
+});
+
 test('reveals each segment on playback start and drains only after all audio', () => {
   const { playback, events, sources } = fixture();
   const first = buffer('first');

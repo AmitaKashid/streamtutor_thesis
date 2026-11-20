@@ -57,6 +57,7 @@ interface Message {
   reasoning?: string;
   streaming?: boolean;
   interrupted?: boolean;
+  noAudio?: boolean;
   timestamp: string;
 }
 
@@ -327,15 +328,16 @@ function useTutorSocket(url: string) {
     ws.send(JSON.stringify({ action: "browser_text_finished", turn_id: pendingTextDelivery.turnId }));
   }, [messages, pendingTextDelivery]);
 
-  const finishAssistantMessage = (turnId: string, interrupted = false) => {
+  const finishAssistantMessage = (turnId: string, interrupted = false, noAudio = false) => {
     setMessages((prev) => {
       const id = `assistant_${turnId}`;
-      if (interrupted && !prev.some((message) => message.id === id)) {
+      if ((interrupted || noAudio) && !prev.some((message) => message.id === id)) {
         return [...prev, { id, role: "assistant", text: "", streaming: false,
-          interrupted: true, timestamp: new Date().toLocaleTimeString() }];
+          interrupted, noAudio, timestamp: new Date().toLocaleTimeString() }];
       }
       return prev.map((message) => message.id === id
-        ? { ...message, streaming: false, interrupted: message.interrupted || interrupted }
+        ? { ...message, streaming: false, interrupted: message.interrupted || interrupted,
+            noAudio: message.noAudio || noAudio }
         : message);
     });
   };
@@ -433,12 +435,15 @@ function useTutorSocket(url: string) {
         },
         onDrained: (turnId) => {
           if (turnId !== playbackTurnIdRef.current || stoppedRef.current) return;
-          finishAssistantMessage(turnId);
+          const noAudio = !receivedAudioRef.current;
+          finishAssistantMessage(turnId, false, noAudio);
           updateResponse({ type: "audio_done" });
           const ws = wsRef.current;
-          if (!receivedAudioRef.current || notifiedTurnIdsRef.current.has(turnId) || ws?.readyState !== WebSocket.OPEN) return;
+          if (notifiedTurnIdsRef.current.has(turnId) || ws?.readyState !== WebSocket.OPEN) return;
           notifiedTurnIdsRef.current.add(turnId);
-          ws.send(JSON.stringify({ action: "browser_audio_finished", turn_id: turnId }));
+          // Empty output is not a successfully delivered answer. Release the
+          // server's pending turn without triggering successful-delivery judging.
+          ws.send(JSON.stringify({ action: noAudio ? "browser_audio_interrupted" : "browser_audio_finished", turn_id: turnId }));
         },
         onError: (turnId) => {
           if (turnId !== playbackTurnIdRef.current || stoppedRef.current) return;
@@ -1153,7 +1158,9 @@ function MessageBubble({ message }: { message: Message }) {
           </details>
         ) : null}
         {isUser ? <div className="whitespace-pre-wrap text-sm leading-7">{message.text}</div> : <TutorMarkdown text={message.text} />}
-        {message.interrupted ? (
+        {message.noAudio ? (
+          <div className="mt-2 text-xs text-slate-500">No audio was produced. Try asking again.</div>
+        ) : message.interrupted ? (
           <div className="mt-2 text-xs text-slate-500">Response interrupted</div>
         ) : null}
         {message.streaming ? (
