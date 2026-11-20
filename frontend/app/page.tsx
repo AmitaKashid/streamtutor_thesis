@@ -1569,10 +1569,10 @@ function MetricsTable({ history }: { history: TurnMetricRecord[] }) {
                 <th className={columnHeaderClass}>Model</th>
                 <th className={columnHeaderClass} title="Full tokenized prompt, including system and chat template; measured by the model server.">Prompt tokens</th>
                 <th className={columnHeaderClass} title="Prompt tokens reused from the server's prefix cache.">Cached tokens</th>
-                <th className={columnHeaderClass} title="Server prompt-processing time; excludes queue and network. Cached tokens are not reprocessed.">Prefill</th>
+                <th className={columnHeaderClass} title="Server prompt-processing time; excludes queue and network. For Llama 3 this times the first model evaluation and GPU synchronization.">Prefill</th>
                 <th className={columnHeaderClass} title="All generated tokens, including thinking when enabled.">Output tokens</th>
-                <th className={columnHeaderClass} title="Server-reported generation time, including reasoning and answer tokens.">Decode</th>
-                <th className={columnHeaderClass} title="Server-reported generated token rate; includes reasoning when enabled.">Decode tok/s</th>
+                <th className={columnHeaderClass} title="Server generation time. For Llama 3 this sums model steps after the first token, excluding end-of-generation steps and network waits.">Decode</th>
+                <th className={columnHeaderClass} title="Server generated token rate. For Llama 3 this uses measured steps after the first token; other models may report different timing boundaries.">Decode tok/s</th>
                 <th className={columnHeaderClass} title="First reasoning chunk to first answer chunk; client-observed.">Thinking</th>
                 <th className={columnHeaderClass} title="Time until the first answer text is available, including any thinking.">LLM TTFT (answer)</th>
                 <th className={columnHeaderClass}>LLM total</th>
@@ -1656,6 +1656,9 @@ function MetricsTable({ history }: { history: TurnMetricRecord[] }) {
           </table>
         </div>
       </div>
+      <p className="mt-3 text-xs text-slate-500">
+        A dash means a measurement is unavailable or does not apply. Llama 3 token metrics require a compatible updated remote server; thinking time applies only when reasoning is reported.
+      </p>
     </section>
   );
 }

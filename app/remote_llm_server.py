@@ -10,13 +10,14 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
+import llama_cpp as llama_package
 import uvicorn
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from llm.llmcli.models.registry import get_model_spec
-from llm.llmcli.providers.llamacpp import LlamaCppProvider
+from llm.llmcli.providers.llamacpp import LlamaCppProvider, OBSERVED_LLAMA_CPP_VERSIONS
 
 
 app = FastAPI(title="Remote LLM Server")
@@ -121,7 +122,10 @@ def build_llm(
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    version = getattr(llama_package, "__version__", None)
+    return {"status": "ok", "stream_metrics_protocol": "llamacpp-observed-v1",
+            "llama_cpp_version": version,
+            "llama3_metrics_version_supported": version in OBSERVED_LLAMA_CPP_VERSIONS}
 
 
 @app.post("/generate")

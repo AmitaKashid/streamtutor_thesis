@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, Iterator, Optional, Tuple
+from contextlib import contextmanager
 import time
 import math
 
+import llama_cpp as llama_package
 from llama_cpp import Llama, llama_chat_format, llama_cpp
 
 from .base import LLMProvider, GenerationResult
@@ -13,6 +15,133 @@ from .response_protocols import (
     decode_response_protocol,
 )
 from ..common.latency import Timer
+
+
+OBSERVED_LLAMA_CPP_VERSIONS = frozenset({'0.3.4', '0.3.20'})
+
+
+@contextmanager
+def _observe_llama3_stream(llm, enabled):
+    """Observe actual tokens for the reviewed llama-cpp-python versions.
+
+    The server serializes every operation on this model. The temporary hooks
+    observe its existing generator, never a second inference. Unknown versions
+    deliberately retain unavailable metrics instead of guessing. Prompt eval
+    is timed with a GPU synchronization; decode is time inside generator steps
+    after the first sampled token, excluding terminal tokens and network waits.
+    """
+    result = {}
+    version = getattr(llama_package, '__version__', None)
+    model = getattr(llm, '_model', None)
+    if version == '0.3.4':
+        eog = getattr(llama_cpp, 'llama_token_is_eog', None)
+        vocabulary = getattr(model, 'model', None)
+    elif version == '0.3.20':
+        eog = getattr(llama_cpp, 'llama_vocab_is_eog', None)
+        vocabulary = getattr(model, 'vocab', None)
+    else:
+        eog = vocabulary = None
+    instance_dict = getattr(llm, '__dict__', None)
+    original_generate = getattr(llm, 'generate', None)
+    original_eval = getattr(llm, 'eval', None)
+    if (not enabled or version not in OBSERVED_LLAMA_CPP_VERSIONS or
+            not callable(eog) or vocabulary is None or not isinstance(instance_dict, dict) or
+            not callable(original_generate) or not callable(original_eval) or
+            getattr(llm, 'draft_model', None) is not None):
+        yield result
+        return
+
+    prior = {name: instance_dict.get(name) for name in ('generate', 'eval')}
+    existed = {name: name in instance_dict for name in prior}
+    ctx = getattr(getattr(llm, '_ctx', None), 'ctx', None)
+    synchronize = getattr(llama_cpp, 'llama_synchronize', None)
+    state = {'prompt': None, 'first_eval': True, 'sampled': 0,
+             'output': 0, 'decode_steps': 0, 'decode_seconds': 0.0,
+             'eog_valid': True}
+
+    def observed_eval(tokens, *args, **kwargs):
+        first = state['first_eval'] and state['prompt'] is not None
+        if first:
+            state['first_eval'] = False
+            try:
+                count = len(tokens)
+                if 0 < count <= state['prompt']:
+                    result['serverPromptTokens'] = state['prompt']
+                    result['serverProcessedPromptTokens'] = count
+                    result['serverCachedTokens'] = state['prompt'] - count
+            except (TypeError, ValueError):
+                pass
+        start = time.perf_counter() if first else None
+        output = original_eval(tokens, *args, **kwargs)
+        if first and start is not None and ctx is not None and callable(synchronize):
+            try:
+                synchronize(ctx)
+                result['serverPrefillSeconds'] = time.perf_counter() - start
+            except (TypeError, ValueError, RuntimeError):
+                pass
+        return output
+
+    def observed_generate(tokens, *args, **kwargs):
+        try:
+            state['prompt'] = len(tokens)
+        except TypeError:
+            state['prompt'] = None
+        source = iter(original_generate(tokens, *args, **kwargs))
+        try:
+            while True:
+                start = time.perf_counter()
+                try:
+                    token = next(source)
+                except StopIteration:
+                    return
+                elapsed = time.perf_counter() - start
+                try:
+                    is_end = bool(eog(vocabulary, token))
+                except (TypeError, ValueError, RuntimeError):
+                    state['eog_valid'] = False
+                    is_end = True
+                if not is_end:
+                    state['output'] += 1
+                    if state['sampled'] > 0:
+                        state['decode_steps'] += 1
+                        state['decode_seconds'] += elapsed
+                state['sampled'] += 1
+                yield token
+        finally:
+            close = getattr(source, 'close', None)
+            if callable(close):
+                close()
+
+    try:
+        llm.eval = observed_eval
+        llm.generate = observed_generate
+    except (AttributeError, TypeError):
+        # Restore any attribute installed before a failed assignment.
+        for name in prior:
+            if existed[name]:
+                setattr(llm, name, prior[name])
+            elif name in instance_dict:
+                delattr(llm, name)
+        yield result
+        return
+
+    try:
+        yield result
+        if state['prompt'] is not None and state['eog_valid']:
+            result['serverOutputTokens'] = state['output']
+            if state['decode_steps']:
+                result['serverDecodeSeconds'] = state['decode_seconds']
+                if state['decode_seconds'] > 0:
+                    result['serverDecodeTokensPerSecond'] = (
+                        state['decode_steps'] / state['decode_seconds']
+                    )
+            result['serverMetricsSource'] = 'llama_cpp_python_observed_v1'
+    finally:
+        for name in prior:
+            if existed[name]:
+                setattr(llm, name, prior[name])
+            elif name in instance_dict:
+                delattr(llm, name)
 
 
 @dataclass
@@ -155,21 +284,27 @@ class LlamaCppProvider(LLMProvider):
                 perf_available = True
             except (AttributeError, TypeError, RuntimeError):
                 pass
-        stream = self.llm.create_chat_completion(
-            messages=self._messages(user_text), max_tokens=self.max_new_tokens,
-            temperature=self.temperature, top_p=self.top_p, stream=True,
-        )
         finish_reason = None
         usage = None
-        for event in stream:
-            if isinstance(event.get('usage'), dict):
-                usage = event['usage']
-            for choice in event.get('choices') or []:
-                finish_reason = choice.get('finish_reason') or finish_reason
-                piece = (choice.get('delta') or {}).get('content')
-                if piece:
-                    yield {'delta': piece}
-        metrics = {}
+        with _observe_llama3_stream(self.llm, getattr(self, 'chat_format', None) == 'llama-3') as observed:
+            stream = self.llm.create_chat_completion(
+                messages=self._messages(user_text), max_tokens=self.max_new_tokens,
+                temperature=self.temperature, top_p=self.top_p, stream=True,
+            )
+            try:
+                for event in stream:
+                    if isinstance(event.get('usage'), dict):
+                        usage = event['usage']
+                    for choice in event.get('choices') or []:
+                        finish_reason = choice.get('finish_reason') or finish_reason
+                        piece = (choice.get('delta') or {}).get('content')
+                        if piece:
+                            yield {'delta': piece}
+            finally:
+                close = getattr(stream, 'close', None)
+                if callable(close):
+                    close()
+        metrics = dict(observed)
         if usage:
             for source, target in (('prompt_tokens', 'serverPromptTokens'),
                                    ('completion_tokens', 'serverOutputTokens')):
